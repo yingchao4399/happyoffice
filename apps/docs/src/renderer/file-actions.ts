@@ -311,6 +311,7 @@ function phasedHostFor(ctx: FileActionContext): PhasedContentHost {
       if (ctx.editor) resetEditorHistory(ctx.editor)
     },
     setLoading: ctx.setDocLoading,
+      setInteractive: () => ctx.setDocLoading(false),
     getDirty: () => ctx.dirtyRef.current,
     setDirty: (dirty) => {
       ctx.dirtyRef.current = dirty

@@ -60,6 +60,8 @@ import fileVoiceIcon from '../assets/file-voice.png'
 import fileDocumentIcon from '../assets/file-document.png'
 import fileGeneralIcon from '../assets/file-general.png'
 import { IconNewChat, IconSidebarCollapse } from '../components/icons'
+import { AI_REVISION_AUTHOR, PANEL_WIDTH_KEY, clampPanelWidth, loadPanelWidth } from './panel-state'
+export { AI_REVISION_AUTHOR, initialAiPanelWidth } from './panel-state'
 
 interface ToolActivity {
   name: string
@@ -124,35 +126,6 @@ const EDIT_STARTER_PROMPTS: StringKey[] = [
   'aiStarterContinue',
   'aiStarterFillTemplate',
 ]
-
-/** resizable panel width: persisted, clamped so neither pane collapses */
-const PANEL_WIDTH_KEY = 'docs-ai-panel-width'
-const PANEL_WIDTH_DEFAULT = 360
-const PANEL_WIDTH_MIN = 280
-
-function maxPanelWidth(): number {
-  // The viewport can be transiently tiny (a WebContentsView is 0×0 until the
-  // shell lays it out), so never let the ceiling drop below the minimum
-  return Math.max(PANEL_WIDTH_MIN, Math.min(720, Math.round(window.innerWidth * 0.6)))
-}
-
-function clampPanelWidth(w: number): number {
-  return Math.min(Math.max(w, PANEL_WIDTH_MIN), maxPanelWidth())
-}
-
-function loadPanelWidth(): number {
-  const saved = Number(localStorage.getItem(PANEL_WIDTH_KEY))
-  // static bounds only — clamping against the window here would bake a
-  // transiently small viewport into the restored preference
-  return Number.isFinite(saved) && saved > 0
-    ? Math.min(Math.max(saved, PANEL_WIDTH_MIN), 720)
-    : PANEL_WIDTH_DEFAULT
-}
-
-/** 与面板初始状态共用宽度，供文档首次排版预留侧栏空间。 */
-export function initialAiPanelWidth(): number {
-  return clampPanelWidth(loadPanelWidth())
-}
 
 /** persisted UI preference: highlight AI edits in yellow and ask for confirmation */
 const TRACK_CHANGES_KEY = 'ai-docs-track-changes'
@@ -282,9 +255,6 @@ function SentAttachments({
     </div>
   )
 }
-
-/** author name on AI-generated tracked revisions (accept/reject via Review) */
-export const AI_REVISION_AUTHOR = 'AI Assistant'
 
 interface AiPanelProps {
   editor: Editor

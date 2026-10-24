@@ -27,6 +27,7 @@ function makeHost(destroyed = false) {
     events: [] as string[],
     dirty: false,
     loading: false,
+    interactive: false,
   }
   const host: PhasedContentHost = {
     setContent: (d) => {
@@ -43,6 +44,10 @@ function makeHost(destroyed = false) {
     setLoading: (v) => {
       state.loading = v
       state.events.push(`loading:${v}`)
+    },
+    setInteractive: () => {
+      state.interactive = true
+      state.events.push('interactive')
     },
     getDirty: () => state.dirty,
     setDirty: (v) => {
@@ -78,6 +83,7 @@ describe('setContentPhased', () => {
     setContentPhased(host, docOf(blocks), s.schedule)
     expect(state.mounted.length).toBe(PHASE1_BLOCKS)
     expect(state.loading).toBe(true)
+    expect(state.interactive).toBe(true)
     while (s.pending() > 0) s.drain()
     expect(state.mounted.length).toBe(blocks)
     // every block landed exactly once, in order

@@ -73,7 +73,6 @@ import type {
   SaveDialogOptions,
   WebContents,
 } from 'electron'
-import { parseFileToText } from '@genoffice/file-parse'
 import { convertHtmlToDocx } from '../../../../packages/html2docx/src'
 import { ElectronBrowserDriver } from '../../../../packages/html2docx/src/drivers/electron'
 import {
@@ -157,6 +156,7 @@ import {
 import { isExternallyModified, type DiskFileState } from './external-change'
 import { initDocsAutoUpdater } from './updater'
 import { registerZoteroIpc, teardownZoteroIpc } from './zotero-ipc'
+import * as recentFileStore from './recent-files'
 
 /**
  * Docs main-process logic as an embeddable module: no top-level side effects.
@@ -2306,24 +2306,15 @@ function writeJson(path: string, value: unknown): void {
 
 const RECENT_PATH = () => userDataPath('recent.json')
 
-// the home screen lists all of these; the File menu shows only the first few
-const RECENT_LIMIT = 100
-
 function pushRecent(filePath: string): void {
-  const recent = readJson<string[]>(RECENT_PATH(), [])
-  // Every save lands here (autosave = every 30s): skip the write and the menu
-  // rebuild when the file is already at the head of the list
-  if (recent[0] === filePath) return
-  const next = [filePath, ...recent.filter((p) => p !== filePath)].slice(0, RECENT_LIMIT)
-  writeJson(RECENT_PATH(), next)
-  buildDocsMenu() // keep File > Open Recent in sync
+  if (recentFileStore.recordRecentFile(filePath)) buildDocsMenu()
 }
 
 /** unified recents for the shell home screen (paths only; type = extension).
  *  No existence filter: a transiently unavailable path (disconnected drive,
  *  pending mount) must stay listed — the stat layer flags it instead (r158) */
 export function readRecentFiles(): string[] {
-  return readJson<string[]>(RECENT_PATH(), [])
+  return recentFileStore.readRecentFiles()
 }
 
 export function recordRecentFile(filePath: string): void {
@@ -2331,12 +2322,7 @@ export function recordRecentFile(filePath: string): void {
 }
 
 export function removeRecentFiles(filePaths: string[]): void {
-  const drop = new Set(filePaths)
-  const recent = readJson<string[]>(RECENT_PATH(), [])
-  writeJson(
-    RECENT_PATH(),
-    recent.filter((p) => !drop.has(p)),
-  )
+  recentFileStore.removeRecentFiles(filePaths)
   buildDocsMenu()
 }
 
@@ -2361,48 +2347,27 @@ export function docsFileRenamed(wc: WebContents, oldPath: string, newPath: strin
 
 /** keep a renamed file at its old position in the recent/starred lists */
 export function replaceRecentFile(oldPath: string, newPath: string): void {
-  const recent = readJson<string[]>(RECENT_PATH(), [])
-  writeJson(
-    RECENT_PATH(),
-    recent.map((p) => (p === oldPath ? newPath : p)),
-  )
-  const starred = readJson<string[]>(STARRED_PATH(), [])
-  if (starred.includes(oldPath)) {
-    writeJson(
-      STARRED_PATH(),
-      starred.map((p) => (p === oldPath ? newPath : p)),
-    )
-  }
+  recentFileStore.replaceRecentFile(oldPath, newPath)
   buildDocsMenu()
 }
 
 // ---- starred files (home screen favorites) ----
 
-const STARRED_PATH = () => userDataPath('starred.json')
-
 /** No existence filter, same rationale as readRecentFiles: a transiently
  *  unavailable starred file must keep its star and its Starred-view row —
  *  filtering here also desynced the star state shown on recents rows (r158) */
 export function readStarredFiles(): string[] {
-  return readJson<string[]>(STARRED_PATH(), [])
+  return recentFileStore.readStarredFiles()
 }
 
 export function toggleStarredFile(filePath: string): void {
-  const starred = readJson<string[]>(STARRED_PATH(), [])
-  const next = starred.includes(filePath)
-    ? starred.filter((p) => p !== filePath)
-    : [...starred, filePath]
-  writeJson(STARRED_PATH(), next)
+  recentFileStore.toggleStarredFile(filePath)
 }
 
 /** Bulk unstar (in-app delete, or removing an unavailable entry from the
  *  recents list): the star must not outlive the row it pointed at (r158) */
 export function removeStarredFiles(filePaths: string[]): void {
-  const drop = new Set(filePaths)
-  if (drop.size === 0) return
-  const starred = readJson<string[]>(STARRED_PATH(), [])
-  const next = starred.filter((p) => !drop.has(p))
-  if (next.length !== starred.length) writeJson(STARRED_PATH(), next)
+  recentFileStore.removeStarredFiles(filePaths)
 }
 
 // ---- original archive (pass-through base: original file archived by content hash) ----
@@ -2880,6 +2845,7 @@ async function extractAttachmentText(filePath: string): Promise<string> {
   const cached = attachmentTextCache.get(filePath)
   if (cached && cached.stamp === stamp) return cached.text
   if (stat.size > ATTACHMENT_MAX_BYTES) throw new Error(tm('errFileTooLarge'))
+  const { parseFileToText } = await import('@genoffice/file-parse')
   const parsed = await parseFileToText(filePath)
   if (!parsed.ok || parsed.kind !== 'text' || parsed.text == null) {
     throw new Error(parsed.error ?? tm('errParseFailed'))

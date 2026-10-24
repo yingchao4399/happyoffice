@@ -1,6 +1,8 @@
 import { DOC_CSS_COMMITTED_EVENT } from './editor/cjk-punct-shrink'
 import { justifyShrinkPluginKey } from './editor/justify-shrink'
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -78,7 +80,7 @@ import {
 import type { AiDocContent, AiSettings, OpenDocxResult } from '../shared/ipc'
 import { AI_PROVIDERS } from '../shared/ipc'
 import { ZoteroDocumentController } from './zotero/controller'
-import { AiPanel, AI_REVISION_AUTHOR, initialAiPanelWidth } from './ai/AiPanel'
+import { AI_REVISION_AUTHOR, initialAiPanelWidth } from './ai/panel-state'
 import type { AiCommentsAccess, AiDocExtras, AiHeaderFooterAccess } from './ai/tools'
 import type { AiStyleInfo } from './ai/style-ops'
 import { applyResolvedPageSetup, describeSection, type AiPageSetupAccess } from './ai/page-setup'
@@ -334,6 +336,7 @@ import {
 } from './review-actions'
 
 const IS_MAC = navigator.platform.toLowerCase().includes('mac')
+const AiPanel = lazy(() => import('./ai/AiPanel').then(module => ({ default: module.AiPanel })))
 
 const twipsToPx = (twips: number) => (twips / 1440) * 96
 
@@ -625,6 +628,10 @@ export function App() {
   const [_recent, setRecent] = useState<string[]>([])
   const [settings, setSettings] = useState<AiSettings>(DEFAULT_SETTINGS)
   const [showAi, setShowAi] = useState(() => localStorage.getItem('aidocs.showAi') !== '0')
+  // Keep the first editable document path free of the AI bundle. The panel is
+  // still mounted after the first idle slice, so its conversation and in-flight
+  // work survive collapse exactly as before.
+  const [hasMountedAiPanel, setHasMountedAiPanel] = useState(false)
   const [spellcheck, setSpellcheck] = useState(spellcheckEnabled)
   /** Increments on every open/new document: AiPanel remounts by key to reset the conversation and history (save path changes don't bump it, so the session continues) */
   const [aiPanelKey, setAiPanelKey] = useState(0)
@@ -1254,6 +1261,19 @@ export function App() {
   useEffect(() => {
     localStorage.setItem('aidocs.showAi', showAi ? '1' : '0')
   }, [showAi])
+
+  useEffect(() => {
+    if (hasMountedAiPanel || !showAi || !doc) return
+    let cancelled = false
+    const mount = () => { if (!cancelled) setHasMountedAiPanel(true) }
+    const idle = window.requestIdleCallback?.(mount, { timeout: 500 })
+    const timer = idle === undefined ? window.setTimeout(mount, 120) : undefined
+    return () => {
+      cancelled = true
+      if (idle !== undefined) window.cancelIdleCallback?.(idle)
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [doc, showAi, hasMountedAiPanel])
 
   useEffect(() => {
     localStorage.setItem('aidocs.showNav', showNav ? '1' : '0')
@@ -5854,7 +5874,8 @@ export function App() {
         {doc && (
           <div className={`ai-dock${showAi ? '' : ' collapsed'}`} style={{ '--ai-panel-width': `${initialAiPanelWidth()}px` } as CSSProperties}>
             {/* always mounted: collapse must not drop state or in-flight runs */}
-            <AiPanel
+            <Suspense fallback={null}>
+            {hasMountedAiPanel && <AiPanel
               key={aiPanelKey}
               editor={editor}
               blocks={doc.parsed.blocks}
@@ -5879,7 +5900,8 @@ export function App() {
               pageSetupAccess={aiPageSetupAccess}
               docExtras={aiDocExtras}
               notesAccess={aiNotesAccess}
-            />
+            />}
+            </Suspense>
           </div>
         )}
         <div className="app-content">

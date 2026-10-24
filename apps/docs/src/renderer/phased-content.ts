@@ -24,8 +24,10 @@ export interface PhasedContentHost {
   appendNodes(nodes: PmNode[]): void
   isDestroyed(): boolean
   resetHistory(): void
-  /** read-only + save-gate flag while the tail streams */
+  /** read-only flag; saves/exports use waitForFullContent as their independent gate */
   setLoading(loading: boolean): void
+  /** allow editing the mounted first pages while the tail streams in the background */
+  setInteractive?: () => void
   getDirty(): boolean
   setDirty(dirty: boolean): void
 }
@@ -35,7 +37,7 @@ export interface PhasedContentHost {
 export const PHASED_CONTENT_SETTLED_EVENT = 'genoffice:phased-content-settled'
 
 /** blocks in the first synchronous mount: overfills the first screens at any zoom */
-export const PHASE1_BLOCKS = 64
+export const PHASE1_BLOCKS = 32
 /** blocks appended per scheduled chunk while the tail streams in */
 export const PHASE_CHUNK_BLOCKS = 128
 /** documents at or below this many top-level blocks mount in one pass as before */
@@ -82,6 +84,10 @@ export function setContentPhased(
     return
   }
   host.setContent({ ...pmDoc, content: content.slice(0, PHASE1_BLOCKS) })
+  // The first pages are now usable. The save/export paths still await the
+  // pending tail through waitForFullContent(), so editing does not risk writing
+  // a truncated document while the rest streams in.
+  host.setInteractive?.()
   let settle!: () => void
   settled = new Promise<void>((resolve) => (settle = resolve))
   host.setLoading(true)

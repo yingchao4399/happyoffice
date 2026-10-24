@@ -40,11 +40,16 @@ interface RawTextItem {
   fontName?: string
 }
 
-/** Concatenate text per page + record each item's char range and PDF-space box (built once, cached per doc by caller) */
-export async function buildSearchIndex(doc: PDFDocumentProxy): Promise<SearchIndex> {
-  const entries: PageEntry[] = []
-  for (let n = 1; n <= doc.numPages; n++) {
-    const page = await doc.getPage(n)
+const pageEntries = new WeakMap<PDFDocumentProxy, Map<number, Promise<PageEntry>>>()
+
+/** Reading/OCR needs one page, without parsing the whole document first. */
+export function getPageSearchEntry(doc: PDFDocumentProxy, pageIndex: number): Promise<PageEntry> {
+  let cache = pageEntries.get(doc)
+  if (!cache) { cache = new Map(); pageEntries.set(doc, cache) }
+  const cached = cache.get(pageIndex)
+  if (cached) return cached
+  const pending = (async () => {
+    const page = await doc.getPage(pageIndex + 1)
     const content = await page.getTextContent()
     let text = ''
     const items: IndexedItem[] = []
@@ -70,8 +75,17 @@ export async function buildSearchIndex(doc: PDFDocumentProxy): Promise<SearchInd
       }
       if (it.hasEOL) text += '\n'
     }
-    entries.push({ text, lower: foldCase(text), items })
-  }
+    return { text, lower: foldCase(text), items }
+  })()
+  cache.set(pageIndex, pending)
+  void pending.catch(() => { if (cache?.get(pageIndex) === pending) cache.delete(pageIndex) })
+  return pending
+}
+
+/** Full-document operations explicitly build the index, reusing page work. */
+export async function buildSearchIndex(doc: PDFDocumentProxy): Promise<SearchIndex> {
+  const entries: PageEntry[] = []
+  for (let n = 0; n < doc.numPages; n++) entries.push(await getPageSearchEntry(doc, n))
   return entries
 }
 

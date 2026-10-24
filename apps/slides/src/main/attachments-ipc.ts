@@ -9,7 +9,6 @@ import { app, dialog, ipcMain } from 'electron'
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { showOpenDialogWithMemory } from '@genoffice/electron-utils'
-import { parseFileToText } from '@genoffice/file-parse'
 import type {
   AttachmentAddResult,
   AttachmentImageResult,
@@ -137,6 +136,7 @@ async function extractAttachmentText(filePath: string): Promise<string> {
   const cached = attachmentTextCache.get(filePath)
   if (cached && cached.stamp === stamp) return cached.text
   if (stat.size > ATTACHMENT_MAX_BYTES) throw new Error(tm('errFileTooLarge'))
+  const { parseFileToText } = await import('@genoffice/file-parse')
   const parsed = await parseFileToText(filePath)
   if (!parsed.ok || parsed.kind !== 'text' || parsed.text == null) {
     throw new Error(parsed.error ?? tm('errParseFailed'))

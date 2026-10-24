@@ -90,7 +90,8 @@ import {
 import { StampDialog } from './StampDialog'
 import { buildStamps } from './stamps'
 import type { HeaderFooterConfig, WatermarkConfig } from './stamps'
-import { buildSearchIndex, searchInIndex } from './search'
+import { buildSearchIndex, getPageSearchEntry, searchInIndex } from './search'
+import { createVisiblePageQueue } from './visible-page-queue'
 import type { SearchIndex, SearchMatch } from './search'
 import { mapDocFont, type DocFontStyle } from './doc-font'
 import { groupPageBlocks, reflowOverflows, type TextBlock } from './text-block'
@@ -1998,36 +1999,31 @@ export default function App() {
     return () => document.removeEventListener('copy', copy)
   }, [allTextSelection])
 
-  // Auto-OCR for scanned pages (issue #119): once the base index shows pages with
-  // no extractable text, recognize them sequentially in the background, starting
-  // at the current page. Boxes are stored in PDF space, so later zooms/rotations
-  // reproject.
+  const ocrQueueRef = useRef<ReturnType<typeof createVisiblePageQueue> | null>(null)
+  // Only inspect pages being read. Opening a thousand-page scan must not index
+  // and OCR the entire book before the current page becomes selectable.
   useEffect(() => {
     setOcrPages(new Map())
     setOcrPending(new Set()); setOcrFailed(new Set()); setOcrUnavailable(false)
     if (!doc || sizes.length !== doc.numPages) return
     let stale = false
-    void (async () => {
-      const index = await buildSearchIndex(doc).catch(() => null)
-      if (!index || stale) return
-      const scanned = index
-        .map((entry, i) => (isScannedEntry(entry) ? i : -1))
-        .filter((i) => i >= 0)
-      const from = scanned.findIndex((i) => i >= currentOrigIdxRef.current)
-      const ordered = from > 0 ? [...scanned.slice(from), ...scanned.slice(0, from)] : scanned
-      setOcrPending(new Set(scanned))
-      for (const origIdx of ordered) {
-        if (stale) return
+    let unavailable = false
+    const queue = createVisiblePageQueue(async (origIdx, active) => {
+        if (stale || unavailable) return true
+        setOcrPending(prev => new Set(prev).add(origIdx))
         // one geometry snapshot for render and box conversion: a rotation between
         // the two awaits must not remap boxes through different axes
         try {
+          const entry = await getPageSearchEntry(doc, origIdx)
+          if (stale || !active()) return false
+          if (!isScannedEntry(entry)) return true
           const geom = pageGeomRef.current(origIdx)
           const png = await renderPageForOcr(doc, origIdx, geom)
-          if (stale) return
+          if (stale || !active()) return false
           if (!png) throw new Error('PDF_OCR_FAILED')
           const lines = await window.pdfApi.ocrPage(png)
-          if (stale) return
-          if (lines === null) { setOcrUnavailable(true); setOcrFailed(new Set(scanned)); setOcrPending(new Set()); return }
+          if (stale) return false
+          if (lines === null) { unavailable = true; setOcrUnavailable(true); setOcrFailed(prev => new Set(prev).add(origIdx)); return true }
           const data = buildOcrPageData(lines, geom)
           if (data) setOcrPages((prev) => new Map(prev).set(origIdx, data))
           else setOcrFailed(prev => new Set(prev).add(origIdx))
@@ -2036,12 +2032,20 @@ export default function App() {
         } finally {
           if (!stale) setOcrPending(prev => { const next = new Set(prev); next.delete(origIdx); return next })
         }
-      }
-    })()
+        return true
+    })
+    ocrQueueRef.current = queue
     return () => {
       stale = true
+      queue.dispose()
+      if (ocrQueueRef.current === queue) ocrQueueRef.current = null
     }
   }, [doc, sizes.length])
+
+  useEffect(() => {
+    const pages = [...new Set([currentOrigIdxRef.current, ...[...visibleRows].flatMap(row => rows[row] ?? [])])]
+    ocrQueueRef.current?.update(pages)
+  }, [doc, sizes.length, currentPage, visibleRows, rows])
 
   /** Paragraph boxes are keyed to the loaded doc; drop them on save-reload */
   useEffect(() => {
@@ -7156,6 +7160,22 @@ export default function App() {
             >
               {rows.map((row, r) => {
                 const rowVisible = visibleRows.has(r)
+                // Keep the complete scroll geometry but do not keep 1042 page
+                // canvases, text layers, event handlers and annotation trees in
+                // the DOM. The observer watches this fixed-height placeholder and
+                // swaps in the real pages only near the viewport.
+                if (!rowVisible) {
+                  return (
+                    <div
+                      key={r}
+                      ref={setRowRef(r)}
+                      data-idx={r}
+                      className="pdf-row pdf-row-placeholder"
+                      style={{ height: `${Math.max(1, rowHeights[r] * scale)}px` }}
+                      aria-hidden="true"
+                    />
+                  )
+                }
                 // Comments margin geometry: pin anchors relative to the margin column,
                 // which sits one flex gap right of the row's pages
                 const rowWidths = row.map((i) => Math.floor(dispSize(i).width * scale))

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { foldCase } from '@genoffice/ui'
-import { buildSearchIndex, searchInIndex, type SearchIndex } from '../src/renderer/search'
+import { buildSearchIndex, getPageSearchEntry, searchInIndex, type SearchIndex } from '../src/renderer/search'
 
 interface FakeItem {
   str?: string
@@ -28,6 +28,27 @@ const item = (str: string, x: number, y: number, w: number, h: number): FakeItem
 })
 
 describe('buildSearchIndex', () => {
+  it('reads only the requested page and reuses it for full search', async () => {
+    const requested: number[] = []
+    const original = fakeDoc([[item('one', 0, 0, 30, 10)], [item('two', 0, 0, 30, 10)]])
+    const getPage = original.getPage.bind(original)
+    original.getPage = async n => { requested.push(n); return getPage(n) }
+    const [first, second] = await Promise.all([getPageSearchEntry(original, 1), getPageSearchEntry(original, 1)])
+    expect(first).toBe(second)
+    expect(first.text).toBe('two')
+    expect(requested).toEqual([2])
+    expect((await buildSearchIndex(original)).map(entry => entry.text)).toEqual(['one', 'two'])
+    expect(requested).toEqual([2, 1])
+  })
+
+  it('can retry a failed text read', async () => {
+    const doc = fakeDoc([[item('retry', 0, 0, 30, 10)]])
+    const original = doc.getPage.bind(doc)
+    let failed = false
+    doc.getPage = async n => { if (!failed) { failed = true; throw new Error('temporary') }; return original(n) }
+    await expect(getPageSearchEntry(doc, 0)).rejects.toThrow('temporary')
+    expect((await getPageSearchEntry(doc, 0)).text).toBe('retry')
+  })
   it('concatenates item text per page and records char ranges', async () => {
     const doc = fakeDoc([[item('Hello ', 10, 700, 60, 12), item('World', 70, 700, 50, 12)]])
     const index = await buildSearchIndex(doc)
