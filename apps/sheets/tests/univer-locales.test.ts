@@ -1,11 +1,48 @@
 import { LocaleType } from '@univerjs/core'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import type { UniverRuntime } from '../src/renderer/univer-state'
 
 import {
   insertRowsBelowLocale,
   numberAsTextAlertLocale,
   univerLocaleFor,
+  applyUniverLocale,
 } from '../src/renderer/univer-locales'
+
+describe('live workbook language changes', () => {
+  function runtime() {
+    const locale = { load: vi.fn(), setLocale: vi.fn() }
+    return { locale, value: { univer: { __getInjector: () => ({ get: () => locale }) } } as unknown as UniverRuntime }
+  }
+
+  it('switches a loaded Chinese grid back to the startup English pack', async () => {
+    const { locale, value } = runtime()
+    await applyUniverLocale(value, 'zh')
+    expect(locale.setLocale).toHaveBeenLastCalledWith(LocaleType.ZH_CN)
+    await applyUniverLocale(value, 'en')
+    expect(locale.setLocale).toHaveBeenLastCalledWith(LocaleType.EN_US)
+    expect(locale.load).toHaveBeenCalledOnce()
+  })
+
+  it('does not let a pending Chinese import overwrite a newer English request', async () => {
+    const { locale, value } = runtime()
+    const older = applyUniverLocale(value, 'zh')
+    await applyUniverLocale(value, 'en')
+    await older
+    expect(locale.setLocale.mock.calls).toEqual([[LocaleType.EN_US]])
+    expect(locale.load).not.toHaveBeenCalled()
+  })
+
+  it('does not touch the disposed runtime after the language effect is canceled', async () => {
+    const { locale, value } = runtime()
+    const controller = new AbortController()
+    const pending = applyUniverLocale(value, 'zh', controller.signal)
+    controller.abort()
+    await pending
+    expect(locale.load).not.toHaveBeenCalled()
+    expect(locale.setLocale).not.toHaveBeenCalled()
+  })
+})
 
 describe('univerLocaleFor', () => {
   it('maps every app language Univer has packs for', () => {

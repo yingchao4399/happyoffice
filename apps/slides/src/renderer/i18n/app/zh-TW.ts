@@ -1,6 +1,7 @@
 import type { zh } from './zh'
 
 export const zhTW = {
+  appCtxSelectAll: '全選',
   appPhPromptTitle: '按一下此處新增標題',
   appPhPromptSubtitle: '按一下此處新增副標題',
   appPhPromptBody: '按一下此處新增文字',

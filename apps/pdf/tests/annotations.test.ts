@@ -12,6 +12,8 @@ import {
 } from '../src/renderer/annotations'
 
 const geom = (rot: number, pw = 100, ph = 200): PageGeom => ({ pw, ph, rot })
+// jsdom 不做排版；真实字符 Range 的几何在下面按测试文档提供。
+if (!Range.prototype.getClientRects) Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, writable: true, value: () => [] })
 
 describe('geomDispSize', () => {
   it('keeps width/height at 0 and 180 degrees', () => {
@@ -156,6 +158,7 @@ describe('selectionQuadsByPage', () => {
     const scrollEl = document.createElement('div')
     const pageEl = document.createElement('div')
     pageEl.className = 'pdf-page'
+    pageEl.dataset.page = '1'
     scrollEl.appendChild(pageEl)
     document.body.appendChild(scrollEl)
     vi.spyOn(pageEl, 'getBoundingClientRect').mockReturnValue(pageRect)
@@ -163,17 +166,28 @@ describe('selectionQuadsByPage', () => {
   }
 
   function mockSelection(scrollEl: HTMLElement, clientRects: DOMRect[], collapsed = false) {
-    const anchor = document.createTextNode('x')
-    scrollEl.appendChild(anchor)
-    const range = {
-      commonAncestorContainer: anchor,
-      getClientRects: () => clientRects,
-    } as unknown as Range
+    const layer = document.createElement('div')
+    layer.className = 'textLayer'
+    scrollEl.querySelector('.pdf-page')!.append(layer)
+    const geometry = new WeakMap<Node, DOMRect>()
+    for (const rect of clientRects) {
+      const span = document.createElement('span')
+      span.textContent = 'x'
+      layer.append(span)
+      geometry.set(span.firstChild!, rect)
+    }
+    vi.spyOn(Range.prototype, 'getClientRects').mockImplementation(function(this: Range) {
+      const box = geometry.get(this.startContainer)
+      return (box ? [box] : []) as unknown as DOMRectList
+    })
+    const range = document.createRange()
+    range.selectNodeContents(layer)
     vi.spyOn(window, 'getSelection').mockReturnValue({
       isCollapsed: collapsed,
       rangeCount: 1,
       getRangeAt: () => range,
     } as unknown as Selection)
+    return range
   }
 
   it('returns null when there is no selection or it is collapsed', () => {
@@ -208,13 +222,13 @@ describe('selectionQuadsByPage', () => {
     expect(result!.get(0)).toEqual([[10, 180, 50, 180, 10, 170, 50, 170]])
   })
 
-  it('drops rects that fully contain other rects and dedupes identical boxes', () => {
+  it('does not read a paragraph wrapper box and dedupes character boxes', () => {
     const { scrollEl } = setupPage()
-    mockSelection(scrollEl, [
-      domRect(5, 15, 60, 40), // big box containing the two below -> dropped
+    const range = mockSelection(scrollEl, [
       domRect(10, 20, 50, 30),
       domRect(10, 20, 50, 30), // duplicate -> deduped
     ])
+    range.getClientRects = () => [domRect(5, 15, 60, 40)] as unknown as DOMRectList
     const result = selectionQuadsByPage(scrollEl, [geom(0)], 1)
     expect(result!.get(0)).toHaveLength(1)
   })

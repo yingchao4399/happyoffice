@@ -1075,6 +1075,7 @@ export interface ExportPdfResult {
 
 /** Print: same page assembly as ExportPdfOp, using the system print dialog. */
 export interface PrintSlidesOp {
+  job?: import('@genoffice/electron-utils/print-job-settings').PrintJobSettings
   pngsBase64: string[]
   widthPx: number
   heightPx: number

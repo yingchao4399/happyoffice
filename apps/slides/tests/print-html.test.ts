@@ -4,9 +4,30 @@ import {
   normalizePrintRatio,
   parsePrintRange,
   printPageCount,
+  printPageLandscape,
+  printPageSizeMicrons,
 } from '../src/shared/print-html'
 
 const srcs = (n: number) => Array.from({ length: n }, (_x, i) => `blob:img-${i}`)
+
+describe('native print orientation', () => {
+  it('uses the same printable dimensions as the HTML, with direction applied once', () => {
+    expect(printPageSizeMicrons({ layout: 'full', ratio: 4 / 3 })).toEqual({ width: 190500, height: 254000 })
+    expect(printPageSizeMicrons({ layout: 'full', ratio: 3 / 4 })).toEqual({ width: 142875, height: 190500 })
+    expect(printPageSizeMicrons({ layout: 'notes', ratio: 16 / 9 })).toEqual({ width: 210058, height: 296926 })
+  })
+  it('uses the actual slide ratio for full slides, including portrait decks', () => {
+    expect(printPageLandscape({ layout: 'full', ratio: 4 / 3, orientation: 'portrait' })).toBe(true)
+    expect(printPageLandscape({ layout: 'full', ratio: 9 / 16, orientation: 'landscape' })).toBe(false)
+    expect(printPageLandscape({ layout: 'full', ratio: NaN })).toBe(true)
+  })
+  it('uses the selected paper direction for notes and handouts', () => {
+    for (const layout of ['notes', 'handout2', 'handout3', 'handout6'] as const) {
+      expect(printPageLandscape({ layout, ratio: 16 / 9 })).toBe(false)
+      expect(printPageLandscape({ layout, ratio: 16 / 9, orientation: 'landscape' })).toBe(true)
+    }
+  })
+})
 
 describe('parsePrintRange', () => {
   it('parses singles, ranges and mixed separators, deduped and sorted', () => {

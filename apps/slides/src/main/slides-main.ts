@@ -26,12 +26,15 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { userInfo } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { cleanupExpiredGeneratedPages } from './generated-page-temp'
+import { parsePrintJobSettings } from '@genoffice/electron-utils/print-job-settings'
 import { exportSlidesPdf } from './pdf-export'
 import { gskApiKey, gskSlideGenerate, setGskProxyUrl } from '@genoffice/ai-search'
 import {
   appMenuLabels,
   configuredDefaultSaveDir,
   contextMenuLabels,
+  createSystemPrintWindow,
+  printWithSystemDialog,
   fetchRemoteImage,
   installContextMenu,
   installNavigationGuard,
@@ -204,7 +207,7 @@ import type {
   ShapeKey,
   SetEffectsPatch,
 } from '../shared/ipc'
-import { buildPrintDocumentHtml } from '../shared/print-html'
+import { buildPrintDocumentHtml, printPageLandscape, printPageSizeMicrons } from '../shared/print-html'
 
 import { tm } from './i18n-main'
 import { tiffToPng } from './tiff-decode'
@@ -1294,6 +1297,9 @@ export function registerSlidesIpc(): void {
       session.undoStack.pop()
       return null
     }
+    // 事务可能直接更新归档并重解析，元素 dirty 会被清除；会话仍有未保存修改。
+    // 统一在成功事务后标记，历史快照负责撤销/重做时恢复这个状态。
+    session.metaDirty = true
     return r
   }
 
@@ -4208,18 +4214,8 @@ export function registerSlidesIpc(): void {
         ...(op.frame ? { frame: true } : {}),
       })
       const owner = BrowserWindow.fromWebContents(e.sender) ?? dialogParent()
-      const win = new BrowserWindow({
-        show: false,
-        ...(owner && !owner.isDestroyed() ? { parent: owner } : {}),
-        ...(process.platform === 'win32'
-          ? {
-              width: 900,
-              height: 700,
-              autoHideMenuBar: true,
-              closable: false,
-              skipTaskbar: true,
-            }
-          : {}),
+      const win = createSystemPrintWindow(owner, {
+        title: tm('menuPrint'),
         webPreferences: { sandbox: true },
       })
       try {
@@ -4230,16 +4226,22 @@ export function registerSlidesIpc(): void {
         )
         // Chromium attaches the native Windows print dialog to the window being printed.
         // If that owner is hidden, the dialog is hidden too and the layout buttons appear inert.
-        if (process.platform === 'win32') {
+        if (process.platform !== 'win32') {
           win.show()
           win.focus()
         }
-        const result = await new Promise<{ success: boolean; failureReason: string }>((resolve) => {
-          win.webContents.print(
-            { silent: false, printBackground: true },
-            (success, failureReason) => resolve({ success, failureReason }),
-          )
-        })
+        const result = await printWithSystemDialog(win.webContents, {
+              ...parsePrintJobSettings(op.job),
+              silent: false,
+              printBackground: true,
+              landscape: printPageLandscape({
+                layout: op.layout ?? 'full',
+                ratio: op.widthPx / op.heightPx,
+                ...(op.orientation ? { orientation: op.orientation } : {}),
+              }),
+              margins: { marginType: 'none' },
+              pageSize: printPageSizeMicrons({ layout: op.layout ?? 'full', ratio: op.widthPx / op.heightPx }),
+            }, owner)
         if (!result.success) {
           // Canceling is a normal completion, not a print failure: ok=false without an
           // error keeps the renderer's print dialog (and its chosen options) open.
@@ -4251,6 +4253,7 @@ export function registerSlidesIpc(): void {
         return { ok: false, error: String(err) }
       } finally {
         if (!win.isDestroyed()) win.destroy()
+        if (!e.sender.isDestroyed() && owner?.isEnabled()) e.sender.focus()
       }
     },
   )
@@ -4343,6 +4346,13 @@ let slidesProjectIpcRegistered = false
 function getSlidesProjectStore(): ProjectStore {
   if (!slidesProjectStore) slidesProjectStore = new ProjectStore(app.getPath('userData'))
   return slidesProjectStore
+}
+
+// 导出只序列化内存模型，不更新路径、dirty、历史或保存基线。
+export async function exportSlidesSnapshot(contentsId: number): Promise<Uint8Array> {
+  const session = sessions.get(contentsId)
+  if (!session) throw new Error('OFFICE_EXPORT_SNAPSHOT_MISSING')
+  return savePptx(session.opened)
 }
 
 export function registerProjectIpc(): void {

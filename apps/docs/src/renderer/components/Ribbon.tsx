@@ -1,5 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import { OfficeFileMenu, type OfficeFileAction } from '@genoffice/ui/office-file-menu'
+import '@genoffice/ui/office-file-menu.css'
 import type { ChainedCommands, Editor } from '@tiptap/core'
 import type { Command } from '@tiptap/pm/state'
 import type { Mark, Node as PMNode, ResolvedPos } from '@tiptap/pm/model'
@@ -172,6 +174,8 @@ interface RibbonProps {
   onOpen: () => void
   onSave: () => void
   onSaveAs: () => void
+  onFileAction?: (command: OfficeFileAction) => void
+  fileBusy?: boolean
   showAi: boolean
   onToggleAi: () => void
   section: SectionSettings | null
@@ -633,6 +637,8 @@ function RibbonInner({
   onOpen,
   onSave,
   onSaveAs,
+  onFileAction,
+  fileBusy,
   showAi,
   onToggleAi,
   section,
@@ -1330,23 +1336,25 @@ function RibbonInner({
   useLayoutEffect(() => {
     const el = styleGalleryRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
-    const check = () => {
-      // measure the natural (uncapped) layout at the current wrapper width
-      el.style.maxWidth = ''
+    const wrapper = el.parentElement ?? el
+    const check = (width: number) => {
       const cards = Array.from(el.children) as HTMLElement[]
-      const firstRow = cards.filter((c) => c.offsetTop === cards[0]?.offsetTop)
-      const overflow = firstRow.length < cards.length
-      if (overflow) {
-        const last = firstRow[firstRow.length - 1]
-        el.style.maxWidth = `${last.offsetLeft - firstRow[0].offsetLeft + last.offsetWidth}px`
-      }
+      const cardWidth = cards[0]?.offsetWidth ?? 0
+      if (!cardWidth || width <= 0) return
+      const gap = parseFloat(getComputedStyle(el).columnGap) || 0
+      const overflow = cards.length * (cardWidth + gap) - gap > width
+      // 先读几何再写样式；恢复自然宽度后逐个读取 offsetTop 会反复强制整页布局。
+      const moreWidth = wrapper.querySelector<HTMLElement>('.style-gallery-more')?.offsetWidth ?? 17
+      const available = width - (overflow ? moreWidth + gap : 0)
+      const visible = Math.max(1, Math.floor((available + gap) / (cardWidth + gap)))
+      el.style.maxWidth = overflow ? `${visible * (cardWidth + gap) - gap}px` : ''
       setStyleGalleryOverflow(overflow)
     }
-    check()
-    const ro = new ResizeObserver(check)
+    // 首次 observe 会在浏览器完成布局后回调，避免 layout effect 强制抢跑整页排版。
+    const ro = new ResizeObserver((entries) => check(entries[0].contentRect.width))
     // observe the wrapper, not the gallery: once capped, the gallery no longer
     // resizes with the window, so it would never re-trigger the observer
-    ro.observe(el.parentElement ?? el)
+    ro.observe(wrapper)
     return () => ro.disconnect()
     // re-check when the card set can change, and after the expander mounts or
     // unmounts (it takes row width, which can change how many cards fit)
@@ -1940,7 +1948,8 @@ function RibbonInner({
             >
               {t('ribbonTabFile')}
             </button>
-            {dropdown === 'file' && (
+            {dropdown === 'file' && onFileAction && window.fridayOffice && <OfficeFileMenu lang={lang} hasDocument={hasDoc} busy={fileBusy} formats={['pdf', 'xps', 'txt', 'md', 'docx', 'doc']} onAction={onFileAction} onClose={() => setDropdown(null)} />}
+            {dropdown === 'file' && (!onFileAction || !window.fridayOffice) && (
               <div data-rb-panel="" className="file-menu">
                 <button
                   onClick={() => {

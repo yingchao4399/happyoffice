@@ -1,6 +1,7 @@
 import type { zh } from './zh'
 
 export const ms = {
+  appCtxSelectAll: 'Pilih semua',
   appPhPromptTitle: 'Klik untuk menambah tajuk',
   appPhPromptSubtitle: 'Klik untuk menambah subtajuk',
   appPhPromptBody: 'Klik untuk menambah teks',

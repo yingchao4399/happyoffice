@@ -8,7 +8,7 @@ import { join } from 'node:path'
 
 import { BrowserWindow, dialog } from 'electron'
 
-import { isHeadlessMode, showSaveDialogWithMemory } from '@genoffice/electron-utils'
+import { createSystemPrintWindow, isHeadlessMode, printPdfFileWithSystemDialog, showSaveDialogWithMemory } from '@genoffice/electron-utils'
 
 import { evenPageRanges, stitchPlan, type PageVariant } from './pdf-page-variants'
 import { printOptionsFor } from './print-options'
@@ -19,6 +19,8 @@ import type {
   WorkbookExportPdfRequest,
   WorkbookExportPdfResult,
   WorkbookPrintResult,
+  WorkbookPrintRequest,
+  WorkbookPrintPreview,
 } from '../shared/desktop-api'
 
 export async function exportPdf(
@@ -61,29 +63,25 @@ export async function exportPdf(
 /// in for them.
 export async function printWorkbook(
   event: IpcMainInvokeEvent,
-  request: WorkbookExportPdfRequest,
+  request: WorkbookPrintRequest,
 ): Promise<WorkbookPrintResult> {
   const owner = BrowserWindow.fromWebContents(event.sender)
   const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-print-'))
   const htmlPath = join(workDir, 'print.html')
-  const window = new BrowserWindow({
-    show: false,
-    ...(owner && !owner.isDestroyed() ? { parent: owner } : {}),
-    // Chromium attaches the native Windows print dialog to the printed window;
-    // a hidden owner hides the dialog too, so Windows gets a real one
-    ...(process.platform === 'win32'
-      ? { width: 900, height: 700, autoHideMenuBar: true, closable: false, skipTaskbar: true }
-      : {}),
+  const window = createSystemPrintWindow(owner, {
+    title: request.fileName,
     webPreferences: { sandbox: true, javascript: false },
   })
   try {
     await writeFile(htmlPath, request.html, 'utf8')
     await window.loadFile(htmlPath)
-    if (process.platform === 'win32') {
-      window.show()
-      window.focus()
-    }
-    const outcome = await new Promise<{ success: boolean; failureReason: string }>((resolve) => {
+    // Windows 直接打印与预览完全相同的 PDF，保留首页/奇偶页眉页脚；不再二次分页。
+    const outcome = process.platform === 'win32' ? await (async () => {
+      const pdfPath = join(workDir, 'print.pdf')
+      await writeFile(pdfPath, await renderPdf(window.webContents, request))
+      return printPdfFileWithSystemDialog(pdfPath, printOptionsFor(request), owner)
+    })() : await new Promise<{ success: boolean; failureReason: string }>((resolve) => {
+      window.once('closed', () => resolve({ success: false, failureReason: 'Print job canceled' }))
       window.webContents.print(printOptionsFor(request), (success, failureReason) =>
         resolve({ success, failureReason }),
       )
@@ -95,7 +93,32 @@ export async function printWorkbook(
   } catch (error: unknown) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   } finally {
-    window.destroy()
+    if (!window.isDestroyed()) window.destroy()
+    if (!event.sender.isDestroyed() && owner?.isEnabled()) event.sender.focus()
+    await rm(workDir, { recursive: true, force: true })
+  }
+}
+
+/// 预览与 PDF 导出共用分页和页眉页脚流程，不弹保存框、不修改工作簿。
+export async function previewWorkbookPrint(
+  event: IpcMainInvokeEvent,
+  request: WorkbookExportPdfRequest,
+): Promise<WorkbookPrintPreview> {
+  const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-preview-'))
+  const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } })
+  const dispose = () => { if (!window.isDestroyed()) window.destroy() }
+  event.sender.once('destroyed', dispose)
+  try {
+    const htmlPath = join(workDir, 'preview.html')
+    await writeFile(htmlPath, request.html, 'utf8')
+    await window.loadFile(htmlPath)
+    const bytes = await renderPdf(window.webContents, request)
+    const { PDFDocument } = await import('pdf-lib')
+    const pdf = await PDFDocument.load(bytes)
+    return { base64: bytes.toString('base64'), pageCount: pdf.getPageCount() }
+  } finally {
+    event.sender.removeListener('destroyed', dispose)
+    dispose()
     await rm(workDir, { recursive: true, force: true })
   }
 }

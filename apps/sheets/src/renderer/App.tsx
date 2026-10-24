@@ -57,7 +57,7 @@ import {
 } from './plan-operations'
 import { isNumericIdentifierText } from './cell-warning'
 import { consumePendingUndoCarry, undoStackDepth } from './undo-carry'
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useAutoSavePref, type AiScopeQuoteData } from '@genoffice/ui'
 
 import {
@@ -292,6 +292,7 @@ import { installSheetRenameFix } from './sheet-rename-fix'
 import { installArrowCollapse } from './arrow-collapse-fix'
 import { installContextSubmenuReopenFix } from './context-submenu-reopen-fix'
 import { installMenuInputEnter } from './menu-input-enter'
+import { installCommonContextMenu } from './common-context-menu'
 import { installClipboardAnchorTile } from './clipboard-anchor-tile'
 import { installSelectionWrapGuard } from './selection-wrap-fix'
 import { sharedFormulaResolverFor } from './shared-formula-journal'
@@ -331,10 +332,12 @@ import {
   handleApplyHeaderFooter as handleApplyHeaderFooterImpl,
   handleExportPdf as handleExportPdfImpl,
   handlePageLayoutCommand as handlePageLayoutCommandImpl,
-  handlePrint as handlePrintImpl,
+  prepareSheetPrintSession,
+  type SheetPrintSession,
   type PageLayoutContext,
 } from './page-layout-actions'
 import { handleExportCsv as handleExportCsvImpl, type CsvExportContext } from './csv-export'
+const PrintDialog = lazy(() => import('./PrintDialog'))
 import { effectivePageBreaks, installPageBreakPreview } from './page-break-preview'
 import { mapProtectedRanges } from './protected-ranges'
 import { handleSave as handleSaveImpl, type SaveContext, type SaveOutcome } from './save-actions'
@@ -371,11 +374,13 @@ import {
   shiftVisualForStructuralOp,
 } from './edit-journal'
 import { shiftPinnedCells } from './formula-closure'
-import { getLang, t, aiLangDirective } from './i18n/locale'
+import { getLang, t, aiLangDirective, useI18n } from './i18n/locale'
 import { planStillMatches } from './lazy-plan'
 import { lastSurvivingScreenLine, netAxisDelta, screenToFile } from './view-transform'
 import { selectionFormatEquals, toSelectionFormat, type SelectionFormat } from './selection-format'
 import { ExcelShell } from './ExcelShell'
+import { OfficeOptionsDialog, officeExportStatus, officeFileText, type OfficeFileAction } from '@genoffice/ui/office-file-menu'
+import '@genoffice/ui/office-file-menu.css'
 import { RecoveryDialog } from './RecoveryDialog'
 import { ToastHost } from './toast'
 import { AdvancedFilterDialog, type AdvancedFilterColumn } from './AdvancedFilterDialog'
@@ -449,6 +454,7 @@ function dateTextKind(value: string): 'date-like' | 'text' {
 }
 
 export function App(): React.JSX.Element {
+  const { lang } = useI18n()
   const adapterRef = useRef(new InMemoryWorkbookAdapter(initialSnapshot))
   const univerRef = useRef<UniverRuntime | null>(null)
   const lazyWorkbookRef = useRef<LazyWorkbookState | null>(null)
@@ -1704,6 +1710,7 @@ export function App(): React.JSX.Element {
     // Enter in a context-menu count box (insert N rows/columns, column
     // width) runs the row's action instead of only committing the number.
     installMenuInputEnter(runtime)
+    installCommonContextMenu(runtime)
     // Pasting into an anchor-shaped target (rows a multiple, columns
     // narrower than the copy — or vice versa) repeats like Excel.
     installClipboardAnchorTile(runtime)
@@ -1744,9 +1751,6 @@ export function App(): React.JSX.Element {
     const dataValidationChromeDisposable = installActiveCellDataValidationChrome(runtime)
     // Excel shows no invalid-data marker until Circle Invalid Data is run.
     const dataValidationMarkerDisposable = installInvalidDataMarkerSuppression(runtime)
-    // Univer's own UI (rule-management panels, dialogs) follows the app
-    // language instead of hard-coded English.
-    void applyUniverLocale(runtime, getLang())
     // Rule-management panels show what each rule actually does: list options /
     // source range, CF formula text, ⚠ on #REF! dead rules.
     const ruleDetailDisposable = installRuleDetail(runtime)
@@ -2892,6 +2896,18 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
+  // 原菜单定义在 React 之外，语言变化时刷新本轮补充的命令文案。
+  useEffect(() => {
+    const runtime = univerRef.current
+    if (!runtime) return
+    installCommonContextMenu(runtime)
+    const controller = new AbortController()
+    void applyUniverLocale(runtime, lang, controller.signal).catch((error) => {
+      if (!controller.signal.aborted) console.warn('表格语言加载失败', error)
+    })
+    return () => controller.abort()
+  }, [lang])
+
   // Canvas render state lives outside React; mirror the toggle into it.
   useEffect(() => {
     crossHighlightRef.current?.setVisible(crossHighlightVisible)
@@ -4001,6 +4017,40 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const [fileBusy, setFileBusy] = useState(false)
+  const [officeOptionsOpen, setOfficeOptionsOpen] = useState(false)
+  const [printSession, setPrintSession] = useState<SheetPrintSession | null>(null)
+  const printOpeningRef = useRef(false)
+  async function openPrintPreview() {
+    if (printOpeningRef.current || printSession) return
+    printOpeningRef.current = true
+    try { setPrintSession(await prepareSheetPrintSession(pageLayoutContext())) }
+    catch (error) { setMessage(error instanceof Error ? error.message : t('appPrintFailed')) }
+    finally { printOpeningRef.current = false }
+  }
+  const fileExportRunning = useRef(false)
+  async function exportSnapshot(format: string) {
+    if (!window.fridayOffice || fileExportRunning.current) return
+    fileExportRunning.current = true; setFileBusy(true); setMessage(officeFileText(getLang()).busy)
+    try {
+      const serialized = await handleSaveImpl(saveContext(), 'snapshot', true)
+      if (!serialized.ok || !serialized.bytes) throw new Error('OFFICE_EXPORT_SNAPSHOT_FAILED')
+      const result = await window.fridayOffice.exportSnapshot({ format, bytes: serialized.bytes })
+      setMessage(officeExportStatus(getLang(), result))
+      return result
+    } catch (error) { setMessage(`${officeFileText(getLang()).failed}: ${String(error)}`); return { ok: false } }
+    finally { fileExportRunning.current = false; setFileBusy(false) }
+  }
+  function fileAction(command: OfficeFileAction) {
+    if (command === 'new' || command === 'close' || command === 'information') void window.fridayOffice?.command(command)
+    else if (command === 'open') void handleInspectWorkbook()
+    else if (command === 'save') void handleSave('save')
+    else if (command === 'saveAs') void handleSave('save-as')
+    else if (command === 'print') void openPrintPreview()
+    else if (command === 'options') setOfficeOptionsOpen(true)
+    else if (command === 'export:pdf') void handleExportPdfImpl(pageLayoutContext())
+    else if (command.startsWith('export:')) void exportSnapshot(command.slice(7))
+  }
   async function handleSave(
     mode: 'save' | 'save-as' | 'recovery',
     quiet = false,
@@ -4037,7 +4087,7 @@ export function App(): React.JSX.Element {
     if (action === 'open') {
       void handleInspectWorkbook()
     } else if (action === 'print') {
-      void handlePrintImpl(pageLayoutContext())
+      void openPrintPreview()
     } else if (action === 'export-pdf') {
       void handleExportPdfImpl(pageLayoutContext())
     } else if (action === 'export-csv') {
@@ -4381,7 +4431,12 @@ export function App(): React.JSX.Element {
           onClose={() => setChartDialog(null)}
         />
       )}
+      {officeOptionsOpen && <OfficeOptionsDialog lang={getLang()} onClose={() => setOfficeOptionsOpen(false)} />}
+      {printSession && <Suspense fallback={null}><PrintDialog session={printSession}
+        onClose={() => setPrintSession(null)} setMessage={setMessage} /></Suspense>}
       <ExcelShell
+        onFileAction={fileAction}
+        fileBusy={fileBusy}
         prompt={prompt}
         preview={preview}
         sheetHasContent={sheetHasContent}

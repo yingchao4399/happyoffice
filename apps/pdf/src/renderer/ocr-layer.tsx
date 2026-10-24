@@ -28,6 +28,7 @@ export interface OcrWord {
 export interface OcrPageData {
   entry: PageEntry
   words: OcrWord[]
+  rotation: number
 }
 
 /** Vision emits degenerate boxes for separators (spaces): full-image or zero-width */
@@ -155,7 +156,7 @@ export function buildOcrPageData(lines: PdfOcrLine[], geom: PageGeom): OcrPageDa
     text += '\n'
   }
   if (items.length === 0) return null
-  return { entry: { text, lower: text.toLowerCase(), items }, words }
+  return { entry: { text, lower: text.toLowerCase(), items }, words, rotation: geom.rot }
 }
 
 /** True when a page has effectively no extractable text (scanned candidate).
@@ -201,16 +202,21 @@ export function OcrTextLayer({
     <div className="pdf-ocr-layer">
       {data.words.map((w, i) => {
         const box = pdfRectToCss(geom, w.rect, scale)
-        const fontPx = Math.max(box.height, 1)
+        // 识别结果以当时页面方向为基准；随后旋转必须同时转动字符，
+        // 不能只交换包围框，否则选区会覆盖相邻行。
+        const rotation = ((geom.rot - data.rotation) % 360 + 360) % 360
+        const sideways = rotation % 180 !== 0
+        const fontPx = Math.max(sideways ? box.width : box.height, 1)
+        const width = sideways ? box.height : box.width
         const measured = measurePt(w.text, fontPx, 'sans-serif')
         return (
           <span
             key={i}
             style={{
-              left: box.left,
-              top: box.top,
+              left: box.left + (rotation === 90 || rotation === 180 ? box.width : 0),
+              top: box.top + (rotation === 180 || rotation === 270 ? box.height : 0),
               fontSize: fontPx,
-              transform: `scaleX(${measured > 0 ? box.width / measured : 1})`,
+              transform: `rotate(${rotation}deg) scaleX(${measured > 0 ? width / measured : 1})`,
             }}
           >
             {w.text}

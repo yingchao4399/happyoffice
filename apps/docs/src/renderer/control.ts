@@ -27,10 +27,29 @@ export function handleDocsControl(
     // whole-paragraph selection ends on the next block's boundary
     const first = Math.min(doc.resolve(from).index(0), lastIndex)
     const last = empty ? first : Math.min(doc.resolve(Math.max(from, to - 1)).index(0), lastIndex)
+    let sourceRect: { x: number; y: number; width: number; height: number } | null = null
+    try {
+      const firstRect = editor.view.coordsAtPos(from)
+      const lastRect = editor.view.coordsAtPos(to)
+      sourceRect = {
+        x: Math.min(firstRect.left, lastRect.left),
+        y: Math.min(firstRect.top, lastRect.top),
+        width: Math.max(firstRect.right, lastRect.right) - Math.min(firstRect.left, lastRect.left),
+        height: Math.max(firstRect.bottom, lastRect.bottom) - Math.min(firstRect.top, lastRect.top),
+      }
+    } catch {
+      // JSDOM or a not-yet-laid-out renderer can expose the text range before geometry.
+    }
     return {
       status: 'ok',
       result: {
         blocks: [first, Math.max(first, last)],
+        from,
+        to,
+        anchor: { offset: editor.state.selection.anchor },
+        focus: { offset: editor.state.selection.head },
+        sourceRect,
+        editable: editor.isEditable,
         text: empty ? '' : doc.textBetween(from, to, '\n'),
         collapsed: empty,
       },

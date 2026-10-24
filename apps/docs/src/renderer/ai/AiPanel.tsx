@@ -149,6 +149,11 @@ function loadPanelWidth(): number {
     : PANEL_WIDTH_DEFAULT
 }
 
+/** 与面板初始状态共用宽度，供文档首次排版预留侧栏空间。 */
+export function initialAiPanelWidth(): number {
+  return clampPanelWidth(loadPanelWidth())
+}
+
 /** persisted UI preference: highlight AI edits in yellow and ask for confirmation */
 const TRACK_CHANGES_KEY = 'ai-docs-track-changes'
 
@@ -953,10 +958,11 @@ export function AiPanel({
   // follow the stream, but stop yanking once the user scrolls up to read;
   // `open` dep: re-expanding lands on messages streamed while collapsed
   useEffect(() => {
-    if (stickToBottomRef.current) {
+    // 空会话只有欢迎语，不需要触发布局来计算滚动高度；已有历史和流式消息照常跟随。
+    if (open && (chat.length > 0 || historicChat.length > 0) && stickToBottomRef.current) {
       logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
     }
-  }, [chat, open])
+  }, [chat, historicChat, open])
 
   const onLogScroll = () => {
     const el = logRef.current

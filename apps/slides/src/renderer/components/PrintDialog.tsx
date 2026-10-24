@@ -5,6 +5,8 @@
  * assembled pages to the system print dialog.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { PrintJobSettings, printFailureText } from '@genoffice/ui/print-job-settings'
+import { DEFAULT_PRINT_JOB } from '@genoffice/electron-utils/print-job-settings'
 import type { RenderSlide } from '@genoffice/pptx-render'
 import { useI18n } from '../i18n/locale'
 import {
@@ -33,7 +35,8 @@ export function PrintDialog({
   onClose: () => void
   setStatus: (s: string) => void
 }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
+  const [job, setJob] = useState({ ...DEFAULT_PRINT_JOB })
   const [pngs, setPngs] = useState<string[] | null>(null)
   const [notes, setNotes] = useState<string[]>([])
   const [layout, setLayout] = useState<PrintLayout>('full')
@@ -153,6 +156,7 @@ export function PrintDialog({
     try {
       const first = slides[selected[0]]
       const r = await window.slidesApi.printSlides({
+        job,
         pngsBase64: selected.map((i) => pngs[i]),
         widthPx: first.widthPx,
         heightPx: first.heightPx,
@@ -162,7 +166,7 @@ export function PrintDialog({
         ...(frame && layout === 'full' ? { frame: true } : {}),
       })
       if (r.ok) onClose()
-      else if (r.error) setStatus(t('appPrintFailed', { error: r.error }))
+      else if (r.error) setStatus(t('appPrintFailed', { error: printFailureText(lang, r.error) }))
       // ok=false without an error = canceled in the system dialog: keep the dialog open
     } finally {
       setPrinting(false)
@@ -205,6 +209,7 @@ export function PrintDialog({
             )}
           </div>
           <div className="print-options">
+            <PrintJobSettings lang={lang} value={job} onChange={setJob} disabled={printing} />
             <fieldset>
               <legend>{t('appPrintRange')}</legend>
               <label className="print-radio">

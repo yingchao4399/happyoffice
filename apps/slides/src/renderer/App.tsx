@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { OfficeOptionsDialog, officeExportStatus, officeFileText, type OfficeFileAction } from '@genoffice/ui/office-file-menu'
+import '@genoffice/ui/office-file-menu.css'
 import type {
   GroupRenderNode,
   RenderFill,
@@ -112,6 +114,7 @@ import { FIT_WIDTH } from './app-constants'
 import { StageRuler } from './components/StageRuler'
 import { formatRulerValue, type RulerUnit } from './ruler-ticks'
 import * as fileActions from './file-actions'
+import { renderSlidesToPngBase64 } from './export-render'
 import * as clipboardActions from './clipboard-actions'
 import * as insertActions from './insert-actions'
 import * as animationActions from './animation-actions'
@@ -933,6 +936,39 @@ export function App() {
   const saveAs = useCallback(() => fileActions.saveAs(() => ctxRef.current), [])
   const exportImages = useCallback(() => fileActions.exportImages(ctxRef.current), [])
   const exportPdf = useCallback(() => void fileActions.exportPdf(ctxRef.current), [])
+  const [fileBusy, setFileBusy] = useState(false)
+  const [officeOptionsOpen, setOfficeOptionsOpen] = useState(false)
+  const exportRunning = useRef(false)
+  const exportSnapshot = useCallback(async (format: string) => {
+    if (!window.fridayOffice || exportRunning.current) return
+    exportRunning.current = true; setFileBusy(true); setStatus(officeFileText(lang).busy)
+    try {
+      await fileActions.flushActiveEdit(ctxRef.current)
+      await ctxRef.current.flushNotes()
+      const bytes = await window.fridayOffice.snapshot()
+      let pages: { pngBase64: string; notes: string }[] | undefined
+      if (format === 'handout.docx') {
+        const ctx = ctxRef.current
+        const visible = ctx.slides.map((slide, index) => ({ slide, index })).filter(({ slide }) => !slide.hidden)
+        const images = await renderSlidesToPngBase64(visible.map(({ slide }) => slide), ctx.images)
+        pages = await Promise.all(visible.map(async ({ index }, i) => ({ pngBase64: images[i]!, notes: await window.slidesApi.getNotes(index) })))
+      }
+      const result = await window.fridayOffice.exportSnapshot({ format, bytes, ...(pages ? { pages } : {}) })
+      setStatus(officeExportStatus(lang, result))
+      return result
+    } catch (error) { setStatus(`${officeFileText(lang).failed}: ${String(error)}`); return { ok: false } }
+    finally { exportRunning.current = false; setFileBusy(false) }
+  }, [lang])
+  const fileAction = useCallback((command: OfficeFileAction) => {
+    if (command === 'new' || command === 'close' || command === 'information') void window.fridayOffice?.command(command)
+    else if (command === 'open') void openDialog()
+    else if (command === 'save') void save()
+    else if (command === 'saveAs') void saveAs()
+    else if (command === 'print') setPrintDlgOpen(true)
+    else if (command === 'options') setOfficeOptionsOpen(true)
+    else if (command === 'export:pdf') void exportPdf()
+    else if (command.startsWith('export:')) void exportSnapshot(command.slice(7))
+  }, [openDialog, save, saveAs, exportPdf, exportSnapshot])
 
   // Headless export mode (--headless-export): this renderer lives in a hidden
   // window whose only job is to run the File menu's PDF export against a path
@@ -2855,6 +2891,8 @@ export function App() {
     startEdit,
     undo,
     redo,
+    canUndo: histState.canUndo,
+    canRedo: histState.canRedo,
     onTransform,
     openBgFormat,
     openFormat,
@@ -2865,7 +2903,7 @@ export function App() {
   const ctxItems = useMemo(
     () => buildCtxItems(ctxRef.current),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ctxMenu, slides, sections, hasClipboard, canPasteSlide, selectedIds, slide, lang],
+    [ctxMenu, slides, sections, hasClipboard, canPasteSlide, selectedIds, slide, lang, histState],
   )
 
   // ---- Draw (freehand ink): one stroke = one transparent PNG picture element; undo/save use the existing pipeline ----
@@ -2904,6 +2942,7 @@ export function App() {
         path,
         current,
         selectedIds,
+        selectedText: () => window.getSelection()?.toString() ?? '',
         setCurrent,
         setSelectedIds,
         clearEditing: () => setEditing(null),
@@ -2913,7 +2952,10 @@ export function App() {
   return (
     <div className="app">
       <ToastHost />
+      {officeOptionsOpen && <OfficeOptionsDialog lang={lang} onClose={() => setOfficeOptionsOpen(false)} />}
       <Ribbon
+        onFileAction={fileAction}
+        fileBusy={fileBusy}
         hasDoc={!!slide}
         deckEmpty={deckEmpty}
         canUndo={histState.canUndo}

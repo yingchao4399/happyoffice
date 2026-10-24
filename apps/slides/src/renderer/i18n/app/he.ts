@@ -1,6 +1,7 @@
 import type { zh } from './zh'
 
 export const he = {
+  appCtxSelectAll: 'בחר הכול',
   appPhPromptTitle: 'לחץ כדי להוסיף כותרת',
   appPhPromptSubtitle: 'לחץ כדי להוסיף כותרת משנה',
   appPhPromptBody: 'לחץ כדי להוסיף טקסט',

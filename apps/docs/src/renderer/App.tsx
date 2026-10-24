@@ -11,11 +11,15 @@ import {
 } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent, SetStateAction } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
+import type { UseEditorOptions } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { handleDocsControl, type ControlRequest } from './control'
 import { DOMParser as PmDOMParser, type Mark as PmMark, Slice as PmSlice } from '@tiptap/pm/model'
 import { NodeSelection, type Transaction } from '@tiptap/pm/state'
 import { Dropdown, ImageViewer, useAutoSavePref } from '@genoffice/ui'
+import { OfficeOptionsDialog, officeExportStatus, officeFileText, type OfficeFileAction } from '@genoffice/ui/office-file-menu'
+import { showToast } from './components/toast-bus'
+import '@genoffice/ui/office-file-menu.css'
 import { wordRangeAtCaret } from './editor/comments'
 import { markdownPasteHtml } from './editor/markdown-paste'
 import { pasteTextSlice, singleCellPasteText } from './editor/paste-text'
@@ -74,7 +78,7 @@ import {
 import type { AiDocContent, AiSettings, OpenDocxResult } from '../shared/ipc'
 import { AI_PROVIDERS } from '../shared/ipc'
 import { ZoteroDocumentController } from './zotero/controller'
-import { AiPanel, AI_REVISION_AUTHOR } from './ai/AiPanel'
+import { AiPanel, AI_REVISION_AUTHOR, initialAiPanelWidth } from './ai/AiPanel'
 import type { AiCommentsAccess, AiDocExtras, AiHeaderFooterAccess } from './ai/tools'
 import type { AiStyleInfo } from './ai/style-ops'
 import { applyResolvedPageSetup, describeSection, type AiPageSetupAccess } from './ai/page-setup'
@@ -275,6 +279,7 @@ import {
 } from './doc-state'
 import {
   applyAiDocContent as applyAiDocContentImpl,
+  buildDocBytes,
   exportPdf as exportPdfImpl,
   exportHtml as exportHtmlImpl,
   exportImages as exportImagesImpl,
@@ -286,7 +291,7 @@ import {
   type FileActionContext,
   type PendingPdfExport,
 } from './file-actions'
-import { isPhasedContentPending } from './phased-content'
+import { isPhasedContentPending, waitForFullContent } from './phased-content'
 
 /** min gap between whole-document pagination passes while a phased open streams its tail */
 const STREAMING_PASS_GAP_MS = 1500
@@ -976,7 +981,9 @@ export function App() {
 
   const editorRef = useRef<Editor | null>(null)
   const zoteroControllerRef = useRef<ZoteroDocumentController | null>(null)
-  const editor = useEditor({
+  // 所有回调只读取稳定 ref/模块函数。保持配置身份，避免每次状态刷新
+  // 都触发 Tiptap setOptions → 全文 updateState 和布局插件重测。
+  const editor = useEditor(useMemo<UseEditorOptions>(() => ({
     extensions: editorExtensions,
     content: { type: 'doc', content: [{ type: 'docParagraph' }] },
     editorProps: {
@@ -1226,7 +1233,7 @@ export function App() {
       dirtyRef.current = true
       forceRender()
     },
-  })
+  }), []))
 
   // textbox sub-editors: re-render the ribbon on focus/selection changes and
   // mark the document dirty when their content changes
@@ -1272,15 +1279,15 @@ export function App() {
     )
     // setOptions (not a direct DOM write): ProseMirror re-applies editorProps
     // attributes on every updateState, so only the props route sticks
-    editor.setOptions({
-      editorProps: {
-        ...editor.options.editorProps,
-        attributes: {
-          ...(editor.options.editorProps.attributes as Record<string, string>),
-          spellcheck: spellcheck ? 'true' : 'false',
-        },
-      },
-    })
+    const props = editor.options.editorProps
+    const attributes = props.attributes as Record<string, string>
+    const spellcheckValue = spellcheck ? 'true' : 'false'
+    if (attributes.spellcheck !== spellcheckValue) {
+      // 配置仍由此 editor 独占；保留 props 身份，防止下一次 React 渲染
+      // 因无关状态变化把旧配置重新写回。
+      props.attributes = { ...attributes, spellcheck: spellcheckValue }
+      editor.setOptions({ editorProps: props })
+    }
     // Blink only respells an editable as a consequence of real (trusted)
     // typing of a word-committing character inside it. A retest ruled
     // everything else out pixel by pixel: attribute flips, focus cycles (the
@@ -1549,7 +1556,8 @@ export function App() {
   // interleaved with (or serialized without) the not-yet-appended blocks.
   useEffect(() => {
     if (!editor) return
-    editor.setEditable(!readMode && !isProtected && !docLoading)
+    const editable = !readMode && !isProtected && !docLoading
+    if (editor.isEditable !== editable) editor.setEditable(editable)
     if (!readMode) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setReadMode(false)
@@ -1678,6 +1686,21 @@ export function App() {
     setAiPanelKey,
     setDocCss,
     setDocLoading,
+    prepareInitialLayout: (nextSection, nextComments) => {
+      if (fileCtxRef.current.doc) return
+      const scroller = scrollContainerRef.current
+      if (!scroller || scroller.clientWidth <= 0) return
+      const extra = nextComments.some((comment) => !comment.parentId && !comment.done) ? MARKUP_AREA_W : 0
+      const dockWidth = showAi ? initialAiPanelWidth() : 0
+      const raw = ((scroller.clientWidth - dockWidth - 48) / (twipsToPx(nextSection.pageWidth) + extra)) * 100
+      if (zoomLiveRef.current <= raw + 0.5) return
+      const applied = Math.min(200, Math.max(50, Math.floor(raw)))
+      lastFitRef.current = { mode: 'width', value: applied }
+      zoomLiveRef.current = applied
+      // 此时尚未显示任何页面，不存在需要保留在视口中心的旧文档点。
+      prevZoomRef.current = applied
+      setZoom(applied)
+    },
     setShowPagePreview,
     section,
     sectionDirty,
@@ -2302,6 +2325,42 @@ export function App() {
   )
   const exportImages = useCallback(() => exportImagesImpl(fileCtxRef.current), [])
   const printDoc = useCallback(() => printDocImpl(fileCtxRef.current), [])
+  const [fileBusy, setFileBusy] = useState(false)
+  const [showOfficeOptions, setShowOfficeOptions] = useState(false)
+  const fileExportRunning = useRef(false)
+  const exportSnapshot = useCallback(async (format: string) => {
+    if (!window.fridayOffice || fileExportRunning.current) return
+    fileExportRunning.current = true
+    setFileBusy(true)
+    setStatus(officeFileText(lang).busy)
+    try {
+      const ctx = fileCtxRef.current
+      if (!ctx.editor || !ctx.doc) return
+      await waitForFullContent()
+      const bytes = await buildDocBytes(ctx)
+      if (!bytes) throw new Error('OFFICE_EXPORT_SNAPSHOT_INVALID')
+      const result = await window.fridayOffice.exportSnapshot({ format, bytes, html: ctx.editor.getHTML(), plainText: ctx.editor.getText() })
+      setStatus(officeExportStatus(lang, result))
+      if (!result.ok && !result.cancelled) showToast(officeExportStatus(lang, result), 'error')
+      return result
+    } catch (error) {
+      const message = `${officeFileText(lang).failed}: ${String(error)}`
+      setStatus(message)
+      showToast(message, 'error')
+      return { ok: false }
+    } finally { fileExportRunning.current = false; setFileBusy(false) }
+  }, [lang])
+  const fileAction = useCallback((command: OfficeFileAction) => {
+    if (command === 'new') void window.fridayOffice?.command('new')
+    else if (command === 'open') void openFile()
+    else if (command === 'save') void save(false)
+    else if (command === 'saveAs') void save(true)
+    else if (command === 'print') void printDoc()
+    else if (command === 'options') setShowOfficeOptions(true)
+    else if (command === 'close' || command === 'information') void window.fridayOffice?.command(command)
+    else if (command === 'export:pdf') void exportPdf()
+    else if (command.startsWith('export:')) void exportSnapshot(command.slice(7))
+  }, [newFile, openFile, save, printDoc, exportPdf, exportSnapshot])
 
   // for real-device verification: trigger export directly via CDP (same as __pageDebug)
   useEffect(() => {
@@ -5025,12 +5084,14 @@ export function App() {
     ;(window as unknown as Record<string, unknown>).__aidocs = {
       editor,
       openPath: (path: string) => openRecent(path),
+      whenReady: () => waitForFullContent(),
       save: () => save(false),
       getStatus: () => status,
       exportPdfTo: (path: string) => exportPdf(path),
       exportHtmlTo: (path: string) => exportHtml(path),
+      exportSnapshot,
     }
-  }, [editor, openRecent, save, status, exportPdf, exportHtml])
+  }, [editor, openRecent, save, status, exportPdf, exportHtml, exportSnapshot])
 
   // shallow-stable snapshot of every editor read the ribbon displays: caret moves
   // that change none of it keep the reference, so the memoized Ribbon skips
@@ -5733,6 +5794,8 @@ export function App() {
 .editor-scroll .doc-page.measuring-columns { column-count: auto; width: ${colFlow.colWidthPx + twipsToPx(canvasSection?.marginLeft ?? section?.marginLeft ?? 0) + twipsToPx(canvasSection?.marginRight ?? section?.marginRight ?? 0)}px; }`}</style>
       )}
       <Ribbon
+        onFileAction={fileAction}
+        fileBusy={fileBusy}
         actionsRef={ribbonActionsRef}
         quickActions={quickActions}
         editor={editor}
@@ -5789,7 +5852,7 @@ export function App() {
 
       <div className="app-main">
         {doc && (
-          <div className={`ai-dock${showAi ? '' : ' collapsed'}`}>
+          <div className={`ai-dock${showAi ? '' : ' collapsed'}`} style={{ '--ai-panel-width': `${initialAiPanelWidth()}px` } as CSSProperties}>
             {/* always mounted: collapse must not drop state or in-flight runs */}
             <AiPanel
               key={aiPanelKey}
@@ -5882,13 +5945,16 @@ export function App() {
                   }
                 }}
               >
-                {doc ? (
+                {/* 提前挂载空 editor；文件解析后保留同一个 EditorContent，
+                    避免带完整文档再次 createNodeViews 和全量排版。 */}
+                <>
                   <div
                     className={docZoomClass}
                     onClick={onDocClick}
                     onContextMenu={onDocContextMenu}
                     onDoubleClick={onDocDoubleClick}
-                    style={docZoomStyle}
+                    style={doc ? docZoomStyle : { display: 'none' }}
+                    aria-hidden={!doc || undefined}
                   >
                     {showRuler && section && (
                       <Ruler
@@ -6028,9 +6094,8 @@ export function App() {
                       )}
                     </div>
                   </div>
-                ) : (
-                  <div className="start-screen start-booting">{t('appStartOpening')}</div>
-                )}
+                  {!doc && <div className="start-screen start-booting">{t('appStartOpening')}</div>}
+                </>
               </main>
               {doc && splitView && (
                 <div className="split-pane">
@@ -6154,6 +6219,10 @@ export function App() {
           editor={editor}
           menu={ctxMenu}
           onClose={() => setCtxMenu(null)}
+          onFind={() => {
+            setShowFind(true)
+            setFindFocusInput((n) => n + 1)
+          }}
           onFontDialog={() => setShowFontDialog(true)}
           onParagraphDialog={() => setShowParaDialog(true)}
           onLink={() => setShowLinkModal(true)}
@@ -6184,6 +6253,7 @@ export function App() {
           onSave={() => saveImageAs(viewImage)}
         />
       )}
+      {showOfficeOptions && <OfficeOptionsDialog lang={lang} editing={{ checked: spellcheck, change: setSpellcheck }} reading={{ checked: darkPage, change: setDarkPage }} onClose={() => setShowOfficeOptions(false)} />}
       {doc && showFontDialog && (
         <FontDialog editor={editor} onClose={() => setShowFontDialog(false)} />
       )}

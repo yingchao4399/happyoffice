@@ -1,6 +1,8 @@
 import type { IFunctionInfo } from '@univerjs/engine-formula'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { platformShortcuts } from '@genoffice/i18n'
+import { OfficeFileMenu, officeFileText, type OfficeFileAction } from '@genoffice/ui/office-file-menu'
+import '@genoffice/ui/office-file-menu.css'
 import {
   Dropdown,
   RibbonCollapseButton,
@@ -220,6 +222,8 @@ interface ExcelShellProps {
   /// file-backed session (the in-memory demo workbook has nowhere to copy).
   readonly canSaveAs: boolean
   readonly onSaveAs: () => void
+  readonly onFileAction?: (command: OfficeFileAction) => void
+  readonly fileBusy?: boolean
   /// QAT redo (workbook history, same path as the app menu's ⇧⌘Z); undo
   /// shares the AI panel's onUndo above.
   readonly onRedo: () => void
@@ -372,6 +376,8 @@ export function ExcelShell({
   onSave,
   canSaveAs,
   onSaveAs,
+  onFileAction,
+  fileBusy,
   onRedo,
   canUndo,
   canRedo,
@@ -554,6 +560,9 @@ export function ExcelShell({
     ? [...ribbonTabs, 'Chart Design']
     : ribbonTabs
   const saveAsTitle = `${t('appSaveAs')} (${platformShortcuts('⇧⌘S')})`
+  const [fileOpen, setFileOpen] = useState(false)
+  const fileRef = useRef<HTMLDivElement>(null)
+  useDismissablePopover(fileOpen, () => setFileOpen(false), { inside: () => [fileRef.current] })
 
   return (
     <main className={`app-shell ${isCopilotOpen ? '' : 'copilot-collapsed'}`}>
@@ -563,6 +572,10 @@ export function ExcelShell({
           aria-label="Workbook commands"
           onDoubleClick={collapse.onTabsDoubleClick}
         >
+          {window.fridayOffice && onFileAction && <div className="file-tab-wrap" ref={fileRef}>
+            <button className="ribbon-tab ribbon-tab-file" aria-expanded={fileOpen} onClick={() => setFileOpen(value => !value)}>{officeFileText(document.documentElement.lang).file}</button>
+            {fileOpen && <OfficeFileMenu lang={document.documentElement.lang} hasDocument={canSaveAs} busy={fileBusy === true} formats={['pdf', 'xps', 'md', 'txt', 'xlsx']} onAction={onFileAction} onClose={() => setFileOpen(false)} />}
+          </div>}
           <button
             type="button"
             className="qa-btn"

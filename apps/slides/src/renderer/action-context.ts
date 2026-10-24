@@ -200,6 +200,8 @@ export interface ActionCtx {
   startEdit: (sourceId: string, caret?: { x: number; y: number }) => void
   undo: () => Promise<void>
   redo: () => Promise<void>
+  canUndo: boolean
+  canRedo: boolean
   onTransform: (
     sourceId: string,
     box: { x: number; y: number; w: number; h: number; rotationDeg: number },

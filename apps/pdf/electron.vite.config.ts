@@ -30,6 +30,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin({ exclude: ['@genoffice/i18n', '@genoffice/electron-utils'] })],
   },
   renderer: {
+    resolve: { dedupe: ['react', 'react-dom'] },
     plugins: [
       react(),
       viteStaticCopy({

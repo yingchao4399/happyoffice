@@ -17,6 +17,20 @@ import * as styleActions from './style-actions'
 import * as tableActions from './table-actions'
 import { TABLE_SHADING_COLORS } from './components/table-shading-colors'
 import { t } from './i18n/locale'
+import { selectAllElements } from './select-all'
+
+function commonItems(ctx: ActionCtx, withSelection = false): Array<CtxItem | null> {
+  return [
+    ...(withSelection ? [{
+      label: t('appCtxSelectAll'), hint: '⌘A',
+      onClick: () => selectAllElements(ctx),
+    }] : []),
+    { label: t('ribbonFindReplace'), hint: '⌘F', onClick: () => ctx.setFindOpen(true) },
+    null,
+    { label: t('ribbonUndo'), hint: '⌘Z', disabled: !ctx.canUndo, onClick: () => void ctx.undo() },
+    { label: t('ribbonRedo'), hint: '⌘⇧Z', disabled: !ctx.canRedo, onClick: () => void ctx.redo() },
+  ]
+}
 
 export function buildCtxItems(ctx: ActionCtx): Array<CtxItem | null> {
   const { ctxMenu, slides, sections, selectedIds, slide, current } = ctx
@@ -84,6 +98,8 @@ export function buildCtxItems(ctx: ActionCtx): Array<CtxItem | null> {
         disabled: slides.length <= 1,
         onClick: () => void slideActions.deleteSlideAt(ctx, i),
       },
+      null,
+      ...commonItems(ctx),
     ]
   }
   if (ctxMenu.kind === 'section') {
@@ -111,6 +127,8 @@ export function buildCtxItems(ctx: ActionCtx): Array<CtxItem | null> {
         disabled: si < 0 || si >= sections.length - 1,
         onClick: () => void slideActions.moveSectionDir(ctx, sid, 'down'),
       },
+      null,
+      ...commonItems(ctx),
     ]
   }
   if (ctxMenu.kind === 'canvas') {
@@ -125,6 +143,8 @@ export function buildCtxItems(ctx: ActionCtx): Array<CtxItem | null> {
       { label: t('appCtxNewSlide'), onClick: () => void slideActions.addSlide(ctx) },
       null,
       { label: t('appCtxFormatBackground'), onClick: () => ctx.openBgFormat() },
+      null,
+      ...commonItems(ctx, true),
     ]
   }
   const node = slide?.nodes.find((n) => n.sourceId === ctxMenu.targetId)
@@ -432,6 +452,8 @@ export function buildCtxItems(ctx: ActionCtx): Array<CtxItem | null> {
       danger: true,
       onClick: () => void clipboardActions.deleteSelected(ctx),
     },
+    null,
+    ...commonItems(ctx, true),
   ]
 }
 

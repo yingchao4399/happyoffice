@@ -27,7 +27,7 @@ class FakeResizeObserver {
   static fire(el: Element) {
     for (const inst of FakeResizeObserver.instances) {
       if (inst.targets.has(el)) {
-        inst.cb([{ target: el } as ResizeObserverEntry], inst as unknown as ResizeObserver)
+        inst.cb([{ target: el, contentRect: { width: el.clientWidth } } as ResizeObserverEntry], inst as unknown as ResizeObserver)
       }
     }
   }
@@ -137,12 +137,15 @@ function ribbonProps(editor: Editor) {
 }
 
 /**
- * The gallery wraps whole cards onto a clipped second row; overflow detection
- * reads each card's offsetTop. jsdom has no layout, so emulate it: the first
- * `visibleCount` cards sit on row 0, the rest wrap to a second row.
+ * jsdom 不做布局：模拟原样式的 74px 卡片、4px 间距和 17px 展开按钮。
+ * 窗口的可用宽度决定能放多少张完整卡片。
  */
 function setRowLayout(gallery: Element, visibleCount: number) {
   const cards = gallery.querySelectorAll<HTMLElement>('.style-card')
+  const wrapper = gallery.parentElement!
+  const width = visibleCount * 78 - 4 + (visibleCount < cards.length ? 21 : 0)
+  Object.defineProperty(wrapper, 'clientWidth', { configurable: true, value: width })
+  ;(gallery as HTMLElement).style.columnGap = '4px'
   cards.forEach((card, i) => {
     const row2 = i >= visibleCount
     Object.defineProperty(card, 'offsetTop', { configurable: true, value: row2 ? 66 : 0 })
@@ -152,6 +155,8 @@ function setRowLayout(gallery: Element, visibleCount: number) {
     })
     Object.defineProperty(card, 'offsetWidth', { configurable: true, value: 74 })
   })
+  const more = wrapper.querySelector('.style-gallery-more')
+  if (more) Object.defineProperty(more, 'offsetWidth', { configurable: true, value: 17 })
 }
 
 describe('style gallery overflow', () => {

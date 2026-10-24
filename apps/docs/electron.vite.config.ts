@@ -38,7 +38,9 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react()],
-    resolve: { alias: localAlias },
+    // Electron-vite 默认保留未压缩脚本；生产编辑器应减少磁盘读取和首开解析量。
+    build: { minify: 'esbuild' },
+    resolve: { alias: localAlias, dedupe: ['react', 'react-dom'] },
     server: {
       // Overridable so multiple genoffice dev instances can coexist (default 5173).
       port: Number(process.env.DOCS_DEV_PORT) || 5173,

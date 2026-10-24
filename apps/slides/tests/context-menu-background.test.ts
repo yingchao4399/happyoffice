@@ -3,6 +3,7 @@ import { buildCtxItems } from '../src/renderer/context-menu-items'
 import * as styleActions from '../src/renderer/style-actions'
 import { t } from '../src/renderer/i18n/locale'
 import type { ActionCtx } from '../src/renderer/action-context'
+import { selectAllElements } from '../src/renderer/select-all'
 
 vi.mock('../src/renderer/konva-adapter', () => ({ isEditableText: () => false }))
 vi.mock('../src/renderer/clipboard-actions', () => ({}))
@@ -58,5 +59,58 @@ describe('thumbnail context-menu background entries', () => {
     item?.onClick?.()
     expect(ctx.setCurrent).toHaveBeenCalledWith(1)
     expect(ctx.openBgFormat).toHaveBeenCalled()
+  })
+})
+
+describe('common context-menu commands', () => {
+  function context(kind: string): ActionCtx {
+    return {
+      ...makeThumbCtx(0),
+      ctxMenu: { kind, x: 0, y: 0, index: 0, targetId: 'text', sectionId: 'section' },
+      slide: { nodes: [
+        { type: 'text', sourceId: 'text' },
+        { type: 'picture', sourceId: 'image' },
+        { type: 'shape', sourceId: 'decoration', decoration: true },
+        { type: 'picture', sourceId: 'background', background: true },
+        { type: 'placeholder-chip', sourceId: 'placeholder' },
+      ] },
+      setSelectedIds: vi.fn(), setFindOpen: vi.fn(),
+      undo: vi.fn().mockResolvedValue(undefined), redo: vi.fn().mockResolvedValue(undefined),
+      canUndo: true, canRedo: false,
+    } as unknown as ActionCtx
+  }
+
+  it.each(['canvas', 'element'])('selects copyable page objects in the %s menu', (kind) => {
+    const ctx = context(kind)
+    const select = buildCtxItems(ctx).find((item) => item?.label === t('appCtxSelectAll'))!
+    expect(select).toBeTruthy()
+    select.onClick!()
+    expect(ctx.setSelectedIds).toHaveBeenCalledWith(['text', 'image'])
+  })
+
+  it.each(['canvas', 'element', 'thumb', 'section'])('uses document history and the original find pane in %s', (kind) => {
+    const ctx = context(kind)
+    const items = buildCtxItems(ctx)
+    const undo = items.find((item) => item?.label === t('ribbonUndo'))!
+    const redo = items.find((item) => item?.label === t('ribbonRedo'))!
+    expect(undo.disabled).toBe(false)
+    expect(redo.disabled).toBe(true)
+    undo.onClick!()
+    expect(ctx.undo).toHaveBeenCalledOnce()
+    items.find((item) => item?.label === t('ribbonFindReplace'))!.onClick!()
+    expect(ctx.setFindOpen).toHaveBeenCalledWith(true)
+    ctx.canUndo = false; ctx.canRedo = true
+    const updated = buildCtxItems(ctx)
+    expect(updated.find((item) => item?.label === t('ribbonUndo'))!.disabled).toBe(true)
+    expect(updated.find((item) => item?.label === t('ribbonRedo'))!.disabled).toBe(false)
+    updated.find((item) => item?.label === t('ribbonRedo'))!.onClick!()
+    expect(ctx.redo).toHaveBeenCalledOnce()
+  })
+
+  it('clears stale object selection when the page has no selectable objects', () => {
+    const ctx = context('canvas')
+    ctx.slide = undefined
+    selectAllElements(ctx)
+    expect(ctx.setSelectedIds).toHaveBeenCalledWith([])
   })
 })

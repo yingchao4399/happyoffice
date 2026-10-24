@@ -47,12 +47,12 @@ describe('docs control hook', () => {
     editor.commands.setTextSelection({ from: 3, to: block0 + 6 })
     expect(handleDocsControl({ cmd: 'selection' }, editor, true)).toEqual({
       status: 'ok',
-      result: { blocks: [0, 1], text: 'pha beta.\nGamma', collapsed: false },
+      result: { blocks: [0, 1], from: 3, to: block0 + 6, anchor: { offset: 3 }, focus: { offset: block0 + 6 }, sourceRect: null, editable: true, text: 'pha beta.\nGamma', collapsed: false },
     })
     editor.commands.setTextSelection(block0 + 2)
     expect(handleDocsControl({ cmd: 'selection' }, editor, true)).toEqual({
       status: 'ok',
-      result: { blocks: [1, 1], text: '', collapsed: true },
+      result: { blocks: [1, 1], from: block0 + 2, to: block0 + 2, anchor: { offset: block0 + 2 }, focus: { offset: block0 + 2 }, sourceRect: null, editable: true, text: '', collapsed: true },
     })
     // a caret at the very end of the document still belongs to the last block
     editor.commands.setTextSelection(editor.state.doc.content.size)
@@ -64,7 +64,7 @@ describe('docs control hook', () => {
     editor.commands.setTextSelection({ from: 1, to: block0 })
     expect(handleDocsControl({ cmd: 'selection' }, editor, true)).toEqual({
       status: 'ok',
-      result: { blocks: [0, 0], text: 'Alpha beta.', collapsed: false },
+      result: { blocks: [0, 0], from: 1, to: block0, anchor: { offset: 1 }, focus: { offset: block0 }, sourceRect: null, editable: true, text: 'Alpha beta.', collapsed: false },
     })
   })
 })

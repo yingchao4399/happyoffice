@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { htmlLang, type Lang } from '@genoffice/i18n'
 import { App } from './App'
-import { LocaleProvider, setModuleLang } from './i18n/locale'
+import { LocaleProvider, loadLanguage, setModuleLang } from './i18n/locale'
 import type { UiTheme } from '../shared/ipc'
 import '@genoffice/ui/tokens.css'
 import '@genoffice/ui/screentip.css'
@@ -40,6 +40,7 @@ async function bootstrap(): Promise<void> {
   } catch {
     /* dev renderer without the preload bridge */
   }
+  await loadLanguage(lang).catch(() => { lang = 'en' })
   setModuleLang(lang)
   document.documentElement.lang = htmlLang(lang)
   applyTheme(theme)

@@ -3,6 +3,8 @@
  * (local state switches tabs, .ribbon-body dispatches); content is trimmed to slide capabilities,
  * unimplemented items are grayed placeholders.
  */
+import { OfficeFileMenu } from '@genoffice/ui/office-file-menu'
+import '@genoffice/ui/office-file-menu.css'
 import React, {
   useCallback,
   useEffect,
@@ -1091,6 +1093,8 @@ export function Ribbon({
   onUndo,
   onRedo,
   onSaveAs,
+  onFileAction,
+  fileBusy,
   onExportPdf,
   onPrint,
   onExportImages,
@@ -1717,7 +1721,8 @@ export function Ribbon({
             >
               {t('ribbonTabFile')}
             </button>
-            {fileOpen && (
+            {fileOpen && onFileAction && window.fridayOffice && <OfficeFileMenu lang={document.documentElement.lang} hasDocument={hasDoc} busy={fileBusy} formats={['pdf', 'xps', 'pptx', 'mp4', 'gif', 'handout.docx']} fileTypes={['pptx', 'ppt', 'potx', 'pot', 'ppsx', 'pps', 'odp']} onAction={onFileAction} onClose={() => setFileOpen(false)} />}
+            {fileOpen && (!onFileAction || !window.fridayOffice) && (
               <div className="file-menu">
                 <button
                   onClick={() => {

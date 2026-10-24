@@ -1,5 +1,8 @@
 import type { AiPanelPrefs } from '@genoffice/ui'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { installOfficeFileBridge } from '@genoffice/electron-utils/office-file-bridge'
+
+installOfficeFileBridge(contextBridge, ipcRenderer)
 import type { IpcRendererEvent } from 'electron'
 import type { RenderSlide } from '@genoffice/pptx-render'
 import type { ProjectApi } from '@genoffice/project-store'

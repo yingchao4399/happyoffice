@@ -20,6 +20,7 @@ export interface SlidesControlState {
   setCurrent: (index: number) => void
   setSelectedIds: (ids: string[]) => void
   clearEditing: () => void
+  selectedText?: () => string
 }
 
 const publicId = (node: RenderNode) => node.durableId ?? node.sourceId
@@ -51,12 +52,16 @@ export function handleSlidesControl(req: ControlRequest, state: SlidesControlSta
     const selected = state.selectedIds
       .map((id) => (slide ? findNode(slide.nodes, id) : null))
       .filter((n): n is RenderNode => Boolean(n))
+    const shapeTexts = selected.map(nodeText).filter(Boolean)
+    const text = state.selectedText?.() || shapeTexts.join('\n')
     return {
       status: 'ok',
       result: {
         slide: state.current,
         elements: selected.map(publicId),
         types: selected.map((n) => n.type),
+        shapeTexts,
+        text,
       },
     }
   }
@@ -94,4 +99,15 @@ export function handleSlidesControl(req: ControlRequest, state: SlidesControlSta
   if (slide !== state.current) state.setCurrent(slide)
   state.setSelectedIds([])
   return { status: 'ok', result: { slide } }
+}
+
+function layoutText(text: { lines: Array<{ runs: Array<{ text?: string }> }> } | undefined): string {
+  return text?.lines.map((line) => line.runs.map((run) => run.text ?? '').join('')).join('\n') ?? ''
+}
+
+function nodeText(node: RenderNode): string {
+  if (node.type === 'shape' || node.type === 'text') return layoutText(node.text)
+  if (node.type === 'table') return node.cells.map((cell) => layoutText(cell.text)).filter(Boolean).join('\t')
+  if (node.type === 'group') return node.children.map(nodeText).filter(Boolean).join('\n')
+  return ''
 }

@@ -1,5 +1,8 @@
 import type { AiPanelPrefs } from '@genoffice/ui'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { installOfficeFileBridge } from '@genoffice/electron-utils/office-file-bridge'
+
+installOfficeFileBridge(contextBridge, ipcRenderer)
 
 import type {
   AiChatResponse,
@@ -299,6 +302,15 @@ const desktopApi: DesktopApi = {
       throw new Error('Invalid print response.')
     }
     return result as { ok: true } | { ok: false; error?: string }
+  },
+  async previewWorkbookPrint(request) {
+    if (!isPdfExportRequest(request)) throw new Error('Invalid print preview request.')
+    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.previewWorkbookPrint, request)
+    if (!isRecord(result) || typeof result.base64 !== 'string' || result.base64.length > 100_000_000 ||
+      typeof result.pageCount !== 'number' || !Number.isInteger(result.pageCount) || result.pageCount < 1) {
+      throw new Error('Invalid print preview response.')
+    }
+    return { base64: result.base64, pageCount: result.pageCount }
   },
   async exportCsv(request) {
     if (

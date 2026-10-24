@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
+import { parsePrintJobSettings } from '@genoffice/electron-utils/print-job-settings'
 import { userInfo } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { BrowserWindow, WebContentsView, app, dialog, ipcMain, shell } from 'electron'
@@ -21,6 +22,7 @@ import {
   installContextMenu,
   installNavigationGuard,
   printHtmlToPdf,
+  printPdfBytesWithSystemDialog,
   safeExternalUrl,
   showOpenDialogWithMemory,
   installRendererProtocol,
@@ -860,6 +862,21 @@ function registerPdfIpc(): void {
 
   ipcMain.handle(PDF_CHANNELS.consumePending, (e) => openPathByWc.get(e.sender.id) ?? null)
 
+  ipcMain.handle(PDF_CHANNELS.printFile, async (event, path: unknown, pages: unknown, job: unknown) => {
+    if (typeof path !== 'string' || !allowedByWc.get(event.sender.id)?.has(path)) return { ok: false, error: 'pdf: path not granted to this view' }
+    if (process.platform !== 'win32') return { ok: false, unavailable: true }
+    try {
+      const settings = parsePrintJobSettings(job)
+      if (pages !== undefined && (!Array.isArray(pages) || pages.length === 0 || pages.length > 100000 || pages.some(page => !Number.isInteger(page) || page < 1 || page > 100000))) throw new Error('INVALID_PRINT_SETTINGS')
+      const targets = pages as number[] | undefined
+      const result = await printPdfBytesWithSystemDialog(await readFile(path), {
+        ...settings,
+        ...(targets ? { pageRanges: [...new Set(targets)].sort((a, b) => a - b).map(page => ({ from: page - 1, to: page - 1 })) } : {}),
+      }, BrowserWindow.fromWebContents(event.sender))
+      return { ok: result.success, ...(result.failureReason && !/cancel/i.test(result.failureReason) ? { error: result.failureReason } : {}) }
+    } catch (error) { return { ok: false, error: error instanceof Error ? error.message : 'WINDOWS_PRINT_FAILED' } }
+  })
+
   ipcMain.handle(PDF_CHANNELS.getUsername, () => {
     try {
       return userInfo().username
@@ -1045,11 +1062,15 @@ function registerPdfIpc(): void {
     return readStaticFormFills(new Uint8Array(await readFile(path)))
   })
 
-  ipcMain.handle(PDF_CHANNELS.ocrPage, async (_e, png: unknown) => {
+  ipcMain.handle(PDF_CHANNELS.ocrPage, async (e, png: unknown) => {
     // bad payload = failed page ([]), never "no engine" (null) — null stops the caller's pass
     if (typeof png !== 'string' || png.length === 0 || png.length > 64 * 1024 * 1024) return []
     const { ocrPagePng } = await import('./ocr')
-    return ocrPagePng(png)
+    const controller = new AbortController()
+    const destroyed = () => controller.abort()
+    e.sender.once('destroyed', destroyed)
+    try { return await ocrPagePng(png, controller.signal) }
+    finally { e.sender.removeListener('destroyed', destroyed) }
   })
 
   ipcMain.handle(

@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { buildOcrPageData } from '../src/renderer/ocr-layer'
+import { buildOcrPageData, OcrTextLayer } from '../src/renderer/ocr-layer'
+import type { ReactElement, CSSProperties } from 'react'
 import type { PdfOcrLine } from '../src/shared/ipc'
 
 const GEOM = { pw: 600, ph: 800, rot: 0 }
 
 const box = (x0: number, x1: number): [number, number, number, number] => [x0, 0.8, x1, 0.85]
 const SEPARATOR: [number, number, number, number] = [0, 1, 0, 1]
+
+it('OCR 后旋转和缩放保持字高，字符与源图同向，不扩大到相邻行', () => {
+  const data = buildOcrPageData([{ text: 'selection', confidence: 1, box: box(0.1, 0.4) }], GEOM)!
+  const first = (rotation: number, scale: number) => {
+    const layer = OcrTextLayer({ data, geom: { ...GEOM, rot: rotation }, scale })
+    return (layer.props as { children: ReactElement<{ style: CSSProperties }>[] }).children[0]!.props.style
+  }
+  const normal = first(0, 1)
+  const rotated = first(90, 1)
+  const zoomed = first(270, 2)
+  expect(rotated.fontSize).toBeCloseTo(Number(normal.fontSize))
+  expect(zoomed.fontSize).toBeCloseTo(Number(normal.fontSize) * 2)
+  expect(rotated.transform).toMatch(/^rotate\(90deg\)/)
+  expect(zoomed.transform).toMatch(/^rotate\(270deg\)/)
+})
 
 describe('buildOcrPageData word joining', () => {
   it('keeps CJK characters unspaced so search matches the query as typed', () => {

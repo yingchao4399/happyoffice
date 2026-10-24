@@ -65,6 +65,8 @@ export {
   type PrintWindow,
 } from './print-html-pdf'
 export { isHeadlessMode, setHeadlessMode } from './headless-mode'
+export { createSystemPrintWindow } from './system-print-window'
+export { printWithSystemDialog, printPdfFileWithSystemDialog, printPdfBytesWithSystemDialog, systemPrintPaperSize, type SystemPrintResult } from './system-print'
 export {
   HEADLESS_EXIT,
   HEADLESS_EXPORT_FLAG,

@@ -12,6 +12,9 @@
     "./screentip.css": "./src/screentip.css",
     "./color-picker.css": "./src/color-picker.css",
     "./dropdown.css": "./src/dropdown.css",
+    "./office-file-menu": "./src/office-file-menu.tsx",
+    "./print-job-settings": "./src/print-job-settings.tsx",
+    "./office-file-menu.css": "./src/office-file-menu.css",
     "./find-panel.css": "./src/find-panel.css",
     "./ribbon-collapse.css": "./src/ribbon-collapse.css",
     "./markdown.css": "./src/markdown.css",
@@ -34,6 +37,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "@genoffice/electron-utils": "*",
     "@genoffice/i18n": "*",
     "@genoffice/pptx-render": "*"
   }

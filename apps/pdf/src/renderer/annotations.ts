@@ -1,4 +1,5 @@
 import type { MarkupInput, MarkupType } from '../shared/ipc'
+import { selectedPdfTextSlices } from './text-selection'
 
 export interface LocalMarkup extends MarkupInput {
   id: string
@@ -210,43 +211,32 @@ export function selectionQuadsByPage(
   if (!scrollEl.contains(range.commonAncestorContainer)) return null
 
   const pageEls = [...scrollEl.querySelectorAll<HTMLElement>('.pdf-page')]
-  const pageRects = pageEls.map((el) => el.getBoundingClientRect())
-
-  // Selection rects mix element-level big boxes with overlapping span-level ones: drop boxes containing others, then dedupe by pixel
-  const raw = [...range.getClientRects()].filter((r) => r.width > 1 && r.height > 1)
-  const rects = raw.filter(
-    (r, i) =>
-      !raw.some(
-        (o, j) =>
-          j !== i &&
-          r.left <= o.left + 1 &&
-          r.right >= o.right - 1 &&
-          r.top <= o.top + 1 &&
-          r.bottom >= o.bottom - 1 &&
-          (o.width < r.width - 1 || o.height < r.height - 1),
-      ),
-  )
-
+  const indices = new Map(pageEls.map((el, index) => [Number(el.dataset.page), index]))
+  const pageRects = new Map<number, DOMRect>()
   const rectsByPage = new Map<number, ViewRect[]>()
   const seen = new Set<string>()
-  for (const r of rects) {
-    const cx = (r.left + r.right) / 2
-    const cy = (r.top + r.bottom) / 2
-    const idx = pageRects.findIndex(
-      (p) => cx >= p.left && cx <= p.right && cy >= p.top && cy <= p.bottom,
-    )
-    if (idx < 0 || !geoms[idx]) continue
-    const key = `${idx}:${Math.round(r.left)}:${Math.round(r.right)}:${Math.round(r.top)}:${Math.round(r.bottom)}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    const list = rectsByPage.get(idx)
-    if (list) list.push(r)
-    else rectsByPage.set(idx, [r])
+  // 只读取实际选中页和字符的几何；不扫描所有页面的尺寸，也不对整页框做两两比较。
+  for (const part of selectedPdfTextSlices(scrollEl, range)) {
+    const idx = indices.get(part.page)
+    if (idx === undefined || !geoms[idx]) continue
+    let pageRect = pageRects.get(idx)
+    if (!pageRect) { pageRect = pageEls[idx]!.getBoundingClientRect(); pageRects.set(idx, pageRect) }
+    for (const r of part.range.getClientRects()) {
+      if (r.width <= 1 || r.height <= 1) continue
+      const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2
+      if (cx < pageRect.left || cx > pageRect.right || cy < pageRect.top || cy > pageRect.bottom) continue
+      const key = `${idx}:${Math.round(r.left)}:${Math.round(r.right)}:${Math.round(r.top)}:${Math.round(r.bottom)}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const list = rectsByPage.get(idx)
+      if (list) list.push(r)
+      else rectsByPage.set(idx, [r])
+    }
   }
 
   const byPage = new Map<number, number[][]>()
   for (const [idx, pageSelectionRects] of rectsByPage) {
-    const p = pageRects[idx]!
+    const p = pageRects.get(idx)!
     const g = geoms[idx]!
     const rects =
       normRot(g.rot) % 180 === 0 ? normalizeSelectionRects(pageSelectionRects) : pageSelectionRects

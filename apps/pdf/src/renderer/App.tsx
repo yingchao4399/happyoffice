@@ -1,11 +1,17 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { OfficeFileMenu, OfficeOptionsDialog, officeExportStatus, officeFileText, type OfficeFileAction } from '@genoffice/ui/office-file-menu'
+import '@genoffice/ui/office-file-menu.css'
 import { handlePdfControl, type ControlRequest } from './control'
+import { pdfTextPosition, selectedPdfTextSlices, suppressPdfClickSelection } from './text-selection'
+import { DocumentContextMenu, type PdfContextAction } from './DocumentContextMenu'
+import { wholeDocumentSelection, type WholeDocumentSelection } from './document-text-selection'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 // legacy build: the modern build relies on new APIs like Math.sumPrecise that the current
 // Electron V8 lacks, making embedded font parsing fail and whole pages render as garbled raw char codes
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
+import './print-dialog.css'
 import { AiPanel, GensparkMark } from './ai/AiPanel'
 import { AiAskPopover, type AskAnchorRect } from './AiAskPopover'
 import { loadSavedAnnots } from './annotation-catalog'
@@ -68,7 +74,9 @@ import { LinkLayer } from './LinkLayer'
 import { OutlinePanel } from './OutlinePanel'
 import type { OutlineNode } from './OutlinePanel'
 import { buildHeadingOutline, remapOutlinePages } from './heading-outline'
-import { printPdf } from './print'
+import { PrintDialog as NativePrintDialog } from './PrintDialog'
+import type { PrintJobSettings } from '@genoffice/electron-utils/print-job-settings'
+import { DEFAULT_PRINT_JOB } from '@genoffice/electron-utils/print-job-settings'
 import { PasswordDialog } from './PasswordDialog'
 import { PropertiesDialog } from './PropertiesDialog'
 import { SignatureDialog, fileToCanvas } from './SignatureDialog'
@@ -133,7 +141,6 @@ import type {
   TextEditInput,
   TextInsertFailure,
   TextInsertInput,
-  PdfOcrLine,
 } from '../shared/ipc'
 import {
   ZOOM_STEPS,
@@ -350,6 +357,15 @@ export default function App() {
   const [ribbonTab, setRibbonTab] = useState<RibbonTab>('home')
   const [spread, setSpread] = useState<1 | 2>(1)
   const [nightMode, setNightMode] = useState(false)
+  const [officeFileOpen, setOfficeFileOpen] = useState(false)
+  const [officeOptionsOpen, setOfficeOptionsOpen] = useState(false)
+  const officeFileRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!officeFileOpen) return
+    const outside = (event: Event) => { if (!officeFileRef.current?.contains(event.target as Node)) setOfficeFileOpen(false) }
+    document.addEventListener('pointerdown', outside, true)
+    return () => document.removeEventListener('pointerdown', outside, true)
+  }, [officeFileOpen])
   const [outline, setOutline] = useState<OutlineNode[] | null>(null)
   const [outlineGenerated, setOutlineGenerated] = useState(false)
   const outlineDocRef = useRef<PDFDocumentProxy | null>(null)
@@ -786,7 +802,21 @@ export default function App() {
   const [deletedInsertedText, setDeletedInsertedText] = useState(false)
   const toastTimerRef = useRef<number | null>(null)
   const [thumbMenu, setThumbMenu] = useState<ThumbMenu | null>(null)
+  const [documentMenu, setDocumentMenu] = useState<{
+    x: number; y: number; origIdx: number; text: string; range: Range | null; pages: number[]
+  } | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [allTextSelection, setAllTextSelection] = useState<WholeDocumentSelection | null>(null)
+  const allTextRequest = useRef(0)
+  const allTextActive = useRef(false)
+  const clearAllTextSelection = () => {
+    allTextRequest.current++
+    allTextActive.current = false
+    setAllTextSelection(null)
+  }
+  useEffect(() => {
+    clearAllTextSelection()
+  }, [doc, order, deleted])
   const [saveError, setSaveError] = useState('')
   /** Transient message toast (save failures, skipped/rejected text edits) */
   const [notice, setNotice] = useState<string | null>(null)
@@ -840,6 +870,9 @@ export default function App() {
   docFontsRef.current = docFonts
   /** OCR results for scanned pages, keyed by original page index (reset per doc) */
   const [ocrPages, setOcrPages] = useState<Map<number, OcrPageData>>(new Map())
+  const [ocrPending, setOcrPending] = useState<Set<number>>(new Set())
+  const [ocrFailed, setOcrFailed] = useState<Set<number>>(new Set())
+  const [ocrUnavailable, setOcrUnavailable] = useState(false)
   const searchIndexRef = useRef<{ doc: PDFDocumentProxy; promise: Promise<SearchIndex> } | null>(
     null,
   )
@@ -1012,7 +1045,10 @@ export default function App() {
         setFormCatalog({ widgets: [], fields: new Map(), byPage: new Map() })
       }
       try {
-        setSavedStaticFormFills(await window.pdfApi.listStaticFormFills(path))
+        // 加密文档由 PDF.js 解密后只读展示；pdf-lib 不具备解密能力，
+        // 不应把读取自定义可编辑表单记录当成打开文档的必要步骤。
+        setSavedStaticFormFills(formFeatures.encrypted || passwordRef.current !== undefined
+          ? [] : await window.pdfApi.listStaticFormFills(path))
       } catch {
         setSavedStaticFormFills([])
       }
@@ -1515,7 +1551,36 @@ export default function App() {
         pageCount,
         currentPage,
         scrollToPage,
-        selectedText: () => window.getSelection()?.toString() ?? '',
+        selectedText: () => allTextSelection?.text ?? window.getSelection()?.toString() ?? '',
+        selectionInfo: () => {
+          if (allTextSelection) return {
+            page: allTextSelection.anchor.page, lastPage: allTextSelection.focus.page,
+            anchor: allTextSelection.anchor, focus: allTextSelection.focus,
+            items: allTextSelection.items.slice(0, 2000),
+          }
+          const selection = window.getSelection()
+          if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
+          const range = selection.getRangeAt(0)
+          const rect = range.getBoundingClientRect()
+          const pageOf = (node: Node | null) => {
+            const element = node instanceof Element ? node : node?.parentElement
+            const page = element?.closest<HTMLElement>('.pdf-page')
+            return page ? Number(page.dataset.page) || undefined : undefined
+          }
+          const sourceRect = rect.width > 0 && rect.height > 0
+            ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+            : undefined
+          return {
+            page: pageOf(selection.anchorNode),
+            lastPage: pageOf(selection.focusNode),
+            anchor: pdfTextPosition(selection.anchorNode, selection.anchorOffset),
+            focus: pdfTextPosition(selection.focusNode, selection.focusOffset),
+            items: scrollRef.current ? selectedPdfTextSlices(scrollRef.current, range).slice(0, 2000).map(({ page, item, from, to, pageOffset }) => ({ page, item, from, to, pageOffset })) : [],
+            anchorOffset: selection.anchorOffset,
+            focusOffset: selection.focusOffset,
+            sourceRect,
+          }
+        },
       })
   })
 
@@ -1891,12 +1956,55 @@ export default function App() {
     return base.then((idx) => idx.map((entry, i) => ocrPages.get(i)?.entry ?? entry))
   }, [doc, ocrPages])
 
+  const selectAllDocumentText = async () => {
+    const index = getSearchIndex()
+    if (!index) return
+    const request = ++allTextRequest.current
+    showNotice(t('contextSelectingAll'))
+    try {
+      const selection = wholeDocumentSelection(await index, visList)
+      if (request !== allTextRequest.current) return
+      if (!selection) { showNotice(t('contextSelectText')); return }
+      allTextActive.current = true
+      window.getSelection()?.removeAllRanges()
+      setAllTextSelection(selection)
+      setAiSelection({ page: selection.anchor.page, lastPage: selection.focus.page, text: selection.text })
+      setSelPopup(null)
+      showNotice(t('contextAllSelected', { count: selection.pages.length }))
+    } catch {
+      if (request === allTextRequest.current) showNotice(t('contextSelectionFailed'))
+    }
+  }
+  // 已选全文随 OCR 结果更新；复制、AI 与导出读取同一个快照。
+  useEffect(() => {
+    if (!allTextActive.current) return
+    const request = ++allTextRequest.current
+    void getSearchIndex()?.then(index => {
+      if (request !== allTextRequest.current) return
+      const selection = wholeDocumentSelection(index, visList)
+      setAllTextSelection(selection)
+      if (selection) setAiSelection({ page: selection.anchor.page, lastPage: selection.focus.page, text: selection.text })
+    }).catch(() => {})
+  }, [ocrPages])
+  useEffect(() => {
+    if (!allTextSelection) return
+    const copy = (event: ClipboardEvent) => {
+      const active = document.activeElement as HTMLElement | null
+      if (active?.closest('input, textarea, [contenteditable="true"]')) return
+      event.preventDefault()
+      event.clipboardData?.setData('text/plain', allTextSelection.text)
+    }
+    document.addEventListener('copy', copy)
+    return () => document.removeEventListener('copy', copy)
+  }, [allTextSelection])
+
   // Auto-OCR for scanned pages (issue #119): once the base index shows pages with
   // no extractable text, recognize them sequentially in the background, starting
   // at the current page. Boxes are stored in PDF space, so later zooms/rotations
   // reproject.
   useEffect(() => {
     setOcrPages(new Map())
+    setOcrPending(new Set()); setOcrFailed(new Set()); setOcrUnavailable(false)
     if (!doc || sizes.length !== doc.numPages) return
     let stale = false
     void (async () => {
@@ -1907,23 +2015,27 @@ export default function App() {
         .filter((i) => i >= 0)
       const from = scanned.findIndex((i) => i >= currentOrigIdxRef.current)
       const ordered = from > 0 ? [...scanned.slice(from), ...scanned.slice(0, from)] : scanned
+      setOcrPending(new Set(scanned))
       for (const origIdx of ordered) {
         if (stale) return
         // one geometry snapshot for render and box conversion: a rotation between
         // the two awaits must not remap boxes through different axes
-        const geom = pageGeomRef.current(origIdx)
-        const png = await renderPageForOcr(doc, origIdx, geom)
-        if (stale || !png) continue
-        let lines: PdfOcrLine[] | null
         try {
-          lines = await window.pdfApi.ocrPage(png)
+          const geom = pageGeomRef.current(origIdx)
+          const png = await renderPageForOcr(doc, origIdx, geom)
+          if (stale) return
+          if (!png) throw new Error('PDF_OCR_FAILED')
+          const lines = await window.pdfApi.ocrPage(png)
+          if (stale) return
+          if (lines === null) { setOcrUnavailable(true); setOcrFailed(new Set(scanned)); setOcrPending(new Set()); return }
+          const data = buildOcrPageData(lines, geom)
+          if (data) setOcrPages((prev) => new Map(prev).set(origIdx, data))
+          else setOcrFailed(prev => new Set(prev).add(origIdx))
         } catch {
-          continue // this page failed; the rest may still recognize
+          if (!stale) setOcrFailed(prev => new Set(prev).add(origIdx))
+        } finally {
+          if (!stale) setOcrPending(prev => { const next = new Set(prev); next.delete(origIdx); return next })
         }
-        if (lines === null) return // no engine on this platform: stop trying
-        if (stale) return
-        const data = buildOcrPageData(lines, geom)
-        if (data) setOcrPages((prev) => new Map(prev).set(origIdx, data))
       }
     })()
     return () => {
@@ -2095,8 +2207,29 @@ export default function App() {
     return quads.size > 0 ? quads : null
   }
 
+  /** A tiny pointer tremor after a click should not turn into a full native text
+      selection. Keep the threshold local to the PDF text layer so intentional
+      cross-line drags retain the browser's precise character selection. */
+  const selectionPointerDown = useRef<[number, number] | null>(null)
+  const handleSelectionMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (e.button === 0 && !drawTool && !(e.target as Element).closest?.('button, input, textarea')) {
+      clearAllTextSelection()
+      selectionPointerDown.current = [e.clientX, e.clientY]
+    } else {
+      selectionPointerDown.current = null
+    }
+  }
+
   /** Mouse released over selected text → show the markup bar centered above the selection box (below if it doesn't fit) */
-  const handleMouseUp = () => {
+  const handleMouseUp = (e?: ReactMouseEvent<HTMLDivElement>) => {
+    const start = selectionPointerDown.current
+    selectionPointerDown.current = null
+    if (e && suppressPdfClickSelection(start, e)) {
+      window.getSelection()?.removeAllRanges()
+      setSelPopup(null)
+      setAiSelection(null)
+      return
+    }
     // In edit-text mode a drag means "choose the characters to edit" (the click
     // after mouseup opens the editor preselected), not the markup popup — and any
     // previously cached AI scope no longer matches what the user sees
@@ -5059,13 +5192,8 @@ export default function App() {
       await flushThen(async () => {
         setPrinting(true)
         try {
-          const data = await window.pdfApi.readFile(filePath)
-          const pdoc = await getDocument({ data: new Uint8Array(data), ...DOC_OPTS }).promise
-          try {
-            await printPdf(pdoc, pages)
-          } finally {
-            void pdoc.loadingTask.destroy()
-          }
+          const result = await window.pdfApi.printFile(filePath, pages, DEFAULT_PRINT_JOB)
+          if (!result.ok && result.error) opFailed(result.error)
         } catch (err) {
           opFailed(err instanceof Error ? err.message : String(err))
         } finally {
@@ -5075,6 +5203,19 @@ export default function App() {
     } finally {
       printBusyRef.current = false
     }
+  }
+
+  const printFromDialog = async (pages: number[] | undefined, job: PrintJobSettings) => {
+    let result: { ok: boolean; error?: string } | undefined
+    await flushThen(async () => {
+      setPrinting(true)
+      try {
+        result = await window.pdfApi.printFile(filePath, pages, job)
+      } finally {
+        setPrinting(false)
+      }
+    })
+    return result ?? { ok: false, error: 'PDF_PRINT_FAILED' }
   }
 
   /** Print dialog confirm: visible page numbers → 1-based file pages */
@@ -5550,7 +5691,13 @@ export default function App() {
           target.isContentEditable)
       if (e.metaKey || e.ctrlKey) {
         const k = e.key.toLowerCase()
-        if (k === 's') {
+        if (k === 'a' && !inEditable) {
+          e.preventDefault()
+          void selectAllDocumentText()
+        } else if (k === 'c' && !inEditable && allTextSelection) {
+          e.preventDefault()
+          void navigator.clipboard.writeText(allTextSelection.text).catch(() => showNotice(t('contextCopyFailed')))
+        } else if (k === 's') {
           e.preventDefault()
           void save()
         } else if (k === 'z') {
@@ -5577,7 +5724,8 @@ export default function App() {
         return
       }
       if (e.key === 'Escape') {
-        if (askPop) setAskPop(null)
+        if (allTextSelection) { clearAllTextSelection(); setAiSelection(null) }
+        else if (askPop) setAskPop(null)
         else if (textDraft) setTextDraft(null)
         else if (pendingTextInsert) setPendingTextInsert(null)
         else if (imagePick) setImagePick(null)
@@ -5713,6 +5861,62 @@ export default function App() {
   }
 
   const menuOrig = thumbMenu?.origIdx ?? -1
+  const openDocumentMenu = (event: ReactMouseEvent<HTMLDivElement>, origIdx: number) => {
+    if (event.defaultPrevented || (event.target as Element).closest('input, textarea, [contenteditable="true"], a')) return
+    event.preventDefault()
+    const selection = window.getSelection()
+    const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null
+    const slices = range && scrollRef.current ? selectedPdfTextSlices(scrollRef.current, range) : []
+    const hasSelection = slices.some(slice => slice.page === origIdx + 1)
+    setThumbMenu(null)
+    setSelPopup(null)
+    setDocumentMenu({ x: event.clientX, y: event.clientY, origIdx,
+      text: allTextSelection?.text ?? (hasSelection ? selection!.toString() : ''), range: hasSelection ? range!.cloneRange() : null,
+      pages: allTextSelection?.pages ?? (hasSelection ? [...new Set(slices.map(slice => slice.page))] : [origIdx + 1]),
+    })
+  }
+  const restoreContextSelection = () => {
+    if (!documentMenu?.range?.startContainer.isConnected || !documentMenu.range.endContainer.isConnected) return false
+    const selection = window.getSelection()
+    selection?.removeAllRanges(); selection?.addRange(documentMenu.range)
+    return true
+  }
+  const documentMenuItems: PdfContextAction[] = documentMenu ? [
+    { id: 'copy', label: t('contextCopy'), disabled: !documentMenu.text, reason: !documentMenu.text ? t('contextSelectText') : undefined,
+      run: () => { void navigator.clipboard.writeText(documentMenu.text).catch(() => showNotice(t('contextCopyFailed'))) } },
+    { id: 'select-page', label: t('contextSelectPage'), run: () => {
+      clearAllTextSelection()
+      const layer = scrollRef.current?.querySelector<HTMLElement>(`.pdf-page[data-page="${documentMenu.origIdx + 1}"] .textLayer, .pdf-page[data-page="${documentMenu.origIdx + 1}"] .pdf-ocr-layer`)
+      if (!layer?.textContent) { showNotice(t('contextSelectText')); return }
+      const range = document.createRange(); range.selectNodeContents(layer)
+      const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range)
+      handleMouseUp()
+    } },
+    { id: 'select-all', label: t('contextSelectAll'), run: () => { void selectAllDocumentText() } },
+    { id: 'search', label: t('search'), disabled: !documentMenu.text, reason: !documentMenu.text ? t('contextSelectText') : undefined,
+      run: () => { setSearchQuery(documentMenu.text); openSearch() } },
+    { id: 'ai', label: t('aiAskBtn'), disabled: !documentMenu.text,
+      run: () => { if (allTextSelection) {
+        setAskPop({ rect: { left: documentMenu.x, top: documentMenu.y, right: documentMenu.x + 1, bottom: documentMenu.y + 1 }, excerpt: documentMenu.text })
+      } else if (restoreContextSelection()) {
+        const rect = documentMenu.range!.getBoundingClientRect()
+        setAskPop({ rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, excerpt: documentMenu.text })
+      } } },
+    ...(['highlight', 'underline', 'strikeout'] as const).map(type => ({ id: type, label: t(type),
+      disabled: readOnly || !documentMenu.text || Boolean(allTextSelection), reason: readOnly ? t('roEncrypted') : allTextSelection ? t('contextMarkupRange') : !documentMenu.text ? t('contextSelectText') : undefined,
+      run: () => { if (restoreContextSelection()) applyMarkup(type) },
+    })),
+    { id: 'export-text', label: t('contextExportText'), disabled: !documentMenu.text || !window.fridayOffice,
+      reason: !documentMenu.text ? t('contextSelectText') : undefined,
+      run: () => { void window.fridayOffice?.exportSelectionText({ text: documentMenu.text }).then(result => {
+        if (!result.cancelled) showNotice(officeExportStatus(lang, result))
+      }).catch(() => showNotice(t('contextExportFailed'))) } },
+    { id: 'source-page', label: t('contextSourcePage'), run: () => scrollToPage(visList.indexOf(documentMenu.pages[0]! - 1) + 1) },
+    { id: 'rotate-left', label: t('rotateLeft'), disabled: readOnly, reason: readOnly ? t('roEncrypted') : undefined, run: () => { rotatePage(documentMenu.origIdx, -90) } },
+    { id: 'rotate-right', label: t('rotateRight'), disabled: readOnly, reason: readOnly ? t('roEncrypted') : undefined, run: () => { rotatePage(documentMenu.origIdx, 90) } },
+    { id: 'undo', label: t('undo'), disabled: readOnly || !undoStack.length, reason: readOnly ? t('roEncrypted') : undefined, run: undo },
+    { id: 'redo', label: t('redo'), disabled: readOnly || !redoStack.length, reason: readOnly ? t('roEncrypted') : undefined, run: redo },
+  ] : []
 
   /** Ribbon AI buttons: expand the dock and auto-run the prompt in the assistant */
   const runAiPreset = (text: string): void => {
@@ -6008,8 +6212,20 @@ export default function App() {
 
   return (
     <div className="app">
+      {officeOptionsOpen && <OfficeOptionsDialog lang={lang} reading={{ checked: nightMode, change: setNightMode }} onClose={() => setOfficeOptionsOpen(false)} />}
       <div className={`ribbon ${collapse.rootClass}`} ref={collapse.rootRef}>
         <div className="ribbon-tabs" onDoubleClick={collapse.onTabsDoubleClick}>
+          {window.fridayOffice && <div className="file-tab-wrap" ref={officeFileRef}>
+            <button className="ribbon-tab ribbon-tab-file" aria-expanded={officeFileOpen} onClick={() => setOfficeFileOpen(value => !value)}>{officeFileText(lang).file}</button>
+            {officeFileOpen && <OfficeFileMenu lang={lang} hasDocument={Boolean(doc)} busy={saveState === 'saving'} saveDisabledReason={readOnly ? t('roEncrypted') : !dirty ? officeFileText(lang).unmodified : ''} formats={['pdf']} onClose={() => setOfficeFileOpen(false)} onAction={(command: OfficeFileAction) => {
+              if (command === 'save') void save()
+              else if (command === 'saveAs' || command === 'export:pdf') void window.fridayOffice?.command('saveAs').then(result => { if (!result.ok && !result.cancelled) showNotice(officeExportStatus(lang, result)) })
+              else if (command === 'print') openPrintDlg()
+              else if (command === 'options') setOfficeOptionsOpen(true)
+              else if (command === 'information') setPropsDlg(true)
+              else if (command === 'open' || command === 'new' || command === 'close') void window.fridayOffice?.command(command)
+            }} />}
+          </div>}
           <button
             className="qa-btn"
             data-tip={`${t('save')} (${platformShortcuts('⌘S')})`}
@@ -6749,7 +6965,7 @@ export default function App() {
             preset={aiPreset}
             onCollapse={() => setAiCollapsed(true)}
             onRunDone={() => void autoSaveAfterAiRun()}
-            onClearSelection={() => setAiSelection(null)}
+            onClearSelection={() => { setAiSelection(null); clearAllTextSelection() }}
           />
         </div>
         <div className="app-content">
@@ -6917,6 +7133,7 @@ export default function App() {
                 clearLineHover()
                 clearBlockHover()
               }}
+              onMouseDown={drawTool ? undefined : handleSelectionMouseDown}
               onMouseUp={drawTool ? undefined : handleMouseUp}
               onClick={(e) => {
                 // Clicking anywhere that isn't an annotation clears the selection
@@ -6996,6 +7213,9 @@ export default function App() {
                           className={`pdf-page${editTextMode && !readOnly ? ' pdf-editing-text' : ''}${
                             pendingTextInsert ? ' pdf-inserting-text' : ''
                           }`}
+                          data-page={origIdx + 1}
+                          data-all-text-selected={allTextSelection ? 'true' : undefined}
+                          onContextMenu={(event) => openDocumentMenu(event, origIdx)}
                           style={
                             {
                               width: Math.floor(size.width * scale),
@@ -8378,6 +8598,7 @@ export default function App() {
                 </button>
               </div>
             )}
+            {documentMenu && <DocumentContextMenu x={documentMenu.x} y={documentMenu.y} items={documentMenuItems} onClose={() => setDocumentMenu(null)} />}
             {thumbMenu && (
               <div
                 ref={thumbMenuRef}
@@ -8385,6 +8606,7 @@ export default function App() {
                 style={{ left: thumbMenu.x, top: thumbMenu.y }}
               >
                 <button
+                  disabled={readOnly} title={readOnly ? t('roEncrypted') : undefined}
                   onClick={() => {
                     rotatePage(menuOrig, -90)
                     setThumbMenu(null)
@@ -8393,6 +8615,7 @@ export default function App() {
                   {t('rotateLeft')}
                 </button>
                 <button
+                  disabled={readOnly} title={readOnly ? t('roEncrypted') : undefined}
                   onClick={() => {
                     rotatePage(menuOrig, 90)
                     setThumbMenu(null)
@@ -8401,7 +8624,7 @@ export default function App() {
                   {t('rotateRight')}
                 </button>
                 <button
-                  disabled={pageCount <= 1}
+                  disabled={readOnly || pageCount <= 1} title={readOnly ? t('roEncrypted') : undefined}
                   onClick={() => {
                     deletePage(menuOrig)
                     setThumbMenu(null)
@@ -8418,6 +8641,7 @@ export default function App() {
                   {t('extractPage')}
                 </button>
                 <button
+                  disabled={readOnly} title={readOnly ? t('roEncrypted') : undefined}
                   onClick={() => {
                     setThumbMenu(null)
                     void insertPdf(menuOrig)
@@ -8426,6 +8650,7 @@ export default function App() {
                   {t('insertPdf')}
                 </button>
                 <button
+                  disabled={readOnly} title={readOnly ? t('roEncrypted') : undefined}
                   onClick={() => {
                     setThumbMenu(null)
                     void insertBlankPage(menuOrig)
@@ -8651,64 +8876,12 @@ export default function App() {
               </div>
             )}
             {printDlg && (
-              <div className="pdf-modal-mask" onClick={() => setPrintDlg(false)}>
-                <div className="pdf-modal" onClick={(e) => e.stopPropagation()}>
-                  <div className="pdf-modal-title">{t('print')}</div>
-                  <label className="pdf-modal-row">
-                    <input
-                      type="radio"
-                      name="print-range"
-                      checked={printMode === 'all'}
-                      onChange={() => setPrintMode('all')}
-                    />
-                    <span>{t('printRangeAll')}</span>
-                  </label>
-                  <label className="pdf-modal-row">
-                    <input
-                      type="radio"
-                      name="print-range"
-                      checked={printMode === 'current'}
-                      onChange={() => setPrintMode('current')}
-                    />
-                    <span>
-                      {t('printRangeCurrent')} ({printCurrentPage})
-                    </span>
-                  </label>
-                  <label className="pdf-modal-row">
-                    <input
-                      type="radio"
-                      name="print-range"
-                      checked={printMode === 'custom'}
-                      onChange={() => setPrintMode('custom')}
-                    />
-                    <span>{t('printRangeCustom')}</span>
-                  </label>
-                  {printMode === 'custom' && (
-                    <input
-                      className={`pdf-modal-input${printInvalid ? ' invalid' : ''}`}
-                      value={printInput}
-                      placeholder={t('printRangeHint')}
-                      autoFocus
-                      onChange={(e) => {
-                        setPrintInput(e.target.value)
-                        setPrintInvalid(false)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') confirmPrint()
-                        else if (e.key === 'Escape') setPrintDlg(false)
-                      }}
-                    />
-                  )}
-                  <div className="pdf-modal-actions">
-                    <button className="pdf-modal-btn" onClick={() => setPrintDlg(false)}>
-                      {t('cancel')}
-                    </button>
-                    <button className="pdf-modal-btn primary" onClick={confirmPrint}>
-                      {t('print')}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <NativePrintDialog
+                path={filePath}
+                currentPage={printCurrentPage}
+                onClose={() => setPrintDlg(false)}
+                onPrint={printFromDialog}
+              />
             )}
             {mergePagesDlg && (
               <div className="pdf-modal-mask" onClick={() => setMergePagesDlg(false)}>
@@ -8881,6 +9054,8 @@ export default function App() {
               <span className="status-item">
                 {t('appPageOf', { current: currentPage, total: pageCount })}
               </span>
+              {ocrPages.has(visList[currentPage - 1]!) && <span className="status-item" title={t('ocrSelectionHint')} role="status">{t('ocrSelectionHint')}</span>}
+              {!ocrPages.has(visList[currentPage - 1]!) && (ocrPending.has(visList[currentPage - 1]!) || ocrFailed.has(visList[currentPage - 1]!)) && <span className="status-item" role="status" title={t(ocrUnavailable ? 'ocrUnavailable' : ocrPending.has(visList[currentPage - 1]!) ? 'ocrRecognizing' : 'ocrFailed')}>{t(ocrUnavailable ? 'ocrUnavailable' : ocrPending.has(visList[currentPage - 1]!) ? 'ocrRecognizing' : 'ocrFailed')}</span>}
             </div>
             <div className="status-right">
               <button

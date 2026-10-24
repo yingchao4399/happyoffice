@@ -1,6 +1,7 @@
 import type { zh } from './zh'
 
 export const cs = {
+  appCtxSelectAll: 'Vybrat vše',
   appPhPromptTitle: 'Klikněte a přidejte nadpis',
   appPhPromptSubtitle: 'Klikněte a přidejte podnadpis',
   appPhPromptBody: 'Klikněte a přidejte text',

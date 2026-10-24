@@ -42,6 +42,7 @@ export const PDF_CHANNELS = {
   saveAsResult: 'pdf:save-as-result',
   saveAsFlow: 'pdf:save-as-flow',
   printRequest: 'pdf:print-request',
+  printFile: 'pdf:print-file',
   fileRenamed: 'pdf:file-renamed',
   getLanguage: 'app:get-language',
   languageChanged: 'app:language-changed',
@@ -687,6 +688,8 @@ export interface ImageSearchResponse {
 
 /** API exposed by preload to the renderer (window.pdfApi) */
 export interface PdfApi {
+  /** 仅打印授予当前视图的 PDF 副本；Windows 原生任务，不修改源文件。 */
+  printFile(path: string, pages?: number[], job?: import('@genoffice/electron-utils/print-job-settings').PrintJobSettings): Promise<{ ok: boolean; error?: string; unavailable?: boolean }>
   /** Take the pdf path pending for this view (queued at tab creation); null if none */
   consumePending(): Promise<string | null>
   /** Read pdf bytes. Only paths granted to this view are allowed */

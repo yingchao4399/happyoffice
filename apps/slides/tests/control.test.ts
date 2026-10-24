@@ -79,7 +79,7 @@ describe('slides control hook', () => {
     const s = state({ current: 1, selectedIds: ['s_inner'] })
     expect(handleSlidesControl({ cmd: 'selection' }, s)).toEqual({
       status: 'ok',
-      result: { slide: 1, elements: ['e_inner'], types: ['shape'] },
+      result: { slide: 1, elements: ['e_inner'], types: ['shape'], shapeTexts: [], text: '' },
     })
   })
 
@@ -87,7 +87,25 @@ describe('slides control hook', () => {
     const s = state({ current: 1, selectedIds: ['s_2'] })
     expect(handleSlidesControl({ cmd: 'selection' }, s)).toEqual({
       status: 'ok',
-      result: { slide: 1, elements: ['e_2'], types: ['shape'] },
+      result: { slide: 1, elements: ['e_2'], types: ['shape'], shapeTexts: [], text: '' },
+    })
+  })
+
+  it('returns selected shape text for AI context and prefers an active text selection', () => {
+    const textNode = node('heading', {
+      text: { lines: [{ runs: [{ text: 'Quarterly results' }, { text: ' summary' }] }] },
+    } as never)
+    const s = state({
+      slides: [slide([textNode])],
+      selectedIds: ['s_heading'],
+    })
+    expect(handleSlidesControl({ cmd: 'selection' }, s)).toMatchObject({
+      status: 'ok',
+      result: { elements: ['e_heading'], shapeTexts: ['Quarterly results summary'], text: 'Quarterly results summary' },
+    })
+    s.selectedText = () => 'Quarterly'
+    expect(handleSlidesControl({ cmd: 'selection' }, s)).toMatchObject({
+      status: 'ok', result: { text: 'Quarterly' },
     })
   })
 })

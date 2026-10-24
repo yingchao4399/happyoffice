@@ -44,6 +44,7 @@ interface EditorContextMenuProps {
   editor: Editor
   menu: ContextMenuState
   onClose: () => void
+  onFind?: () => void
   onFontDialog: () => void
   onParagraphDialog: () => void
   onLink: () => void
@@ -75,6 +76,7 @@ export function EditorContextMenu({
   editor,
   menu,
   onClose,
+  onFind,
   onFontDialog,
   onParagraphDialog,
   onLink,
@@ -109,6 +111,7 @@ export function EditorContextMenu({
     if (left + rect.width > window.innerWidth - 8) left = window.innerWidth - rect.width - 8
     if (top + rect.height > window.innerHeight - 8) top = Math.max(8, menu.y - rect.height)
     setPos({ left, top })
+    el.querySelector<HTMLButtonElement>('.ctx-item:not(:disabled)')?.focus()
   }, [menu])
 
   useEffect(() => {
@@ -116,7 +119,10 @@ export function EditorContextMenu({
       if (!ref.current?.contains(e.target as Node)) onClose()
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        onClose()
+        editor.commands.focus()
+      }
     }
     window.addEventListener('mousedown', close)
     window.addEventListener('keydown', onKey)
@@ -130,7 +136,7 @@ export function EditorContextMenu({
       window.removeEventListener('blur', onClose)
       offChrome?.()
     }
-  }, [onClose])
+  }, [onClose, editor])
 
   const run = (action: () => void) => () => {
     onClose()
@@ -235,6 +241,7 @@ export function EditorContextMenu({
 
   /** Plain-text insertion: no HTML parsing (insertContent(string) would treat < > as tags) */
   const insertPlainText = (text: string) => {
+    if (!editor.isEditable) return
     const lines = text.replace(/\r/g, '').split('\n')
     if (lines.length === 1) {
       editor.chain().focus().insertContent({ type: 'text', text: lines[0] }).run()
@@ -260,6 +267,7 @@ export function EditorContextMenu({
         for (const item of items) {
           if (item.types.includes('text/html')) {
             const html = await (await item.getType('text/html')).text()
+            if (!editor.isEditable) return
             editor
               .chain()
               .focus()
@@ -290,14 +298,29 @@ export function EditorContextMenu({
       onClick?: () => void
       submenuKey?: string
       ai?: boolean
+      writable?: boolean
     },
   ) => (
     <button
       className="ctx-item"
-      disabled={opts.disabled}
+      role="menuitem"
+      disabled={opts.disabled || (opts.writable && !canEdit)}
+      title={opts.writable && !canEdit ? t('appProtectModeReadOnly') : undefined}
       data-tip={opts.ai ? t('appAiBadgeTip') : undefined}
       onMouseEnter={() => setSubmenu(opts.submenuKey ?? null)}
-      onClick={opts.submenuKey ? undefined : opts.onClick}
+      aria-haspopup={opts.submenuKey ? 'menu' : undefined}
+      aria-expanded={opts.submenuKey ? submenu === opts.submenuKey : undefined}
+      onKeyDown={event => {
+        if (event.key !== 'ArrowRight' || !opts.submenuKey || event.currentTarget.disabled) return
+        event.preventDefault()
+        const button = event.currentTarget
+        setSubmenu(opts.submenuKey)
+        requestAnimationFrame(() => button.parentElement?.querySelector<HTMLButtonElement>('.ctx-submenu button:not(:disabled)')?.focus())
+      }}
+      onClick={opts.submenuKey ? undefined : () => {
+        if (opts.writable && !editor.isEditable) return
+        opts.onClick?.()
+      }}
     >
       <span className="ctx-label">{label}</span>
       {opts.ai && (
@@ -313,9 +336,29 @@ export function EditorContextMenu({
   return (
     <div
       ref={ref}
+      role="menu"
       className="ctx-menu"
       style={{ left: pos.left, top: pos.top, minWidth: MENU_WIDTH }}
       onContextMenu={(e) => e.preventDefault()}
+      onKeyDown={event => {
+        const target = event.target as HTMLElement
+        const scope = target.closest('.ctx-submenu') ?? event.currentTarget
+        if (event.key === 'ArrowLeft' && scope !== event.currentTarget) {
+          event.preventDefault()
+          ;(scope.previousElementSibling as HTMLElement | null)?.focus()
+          setSubmenu(null)
+          return
+        }
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+        event.preventDefault()
+        const buttons = Array.from(scope.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+          .filter(button => button.closest('.ctx-submenu') === (scope === event.currentTarget ? null : scope))
+        if (!buttons.length) return
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+          : event.key === 'ArrowDown' ? (index + 1) % buttons.length : (index - 1 + buttons.length) % buttons.length
+        buttons[next]?.focus()
+      }}
     >
       {menu.imageSrc && (
         <>
@@ -325,6 +368,7 @@ export function EditorContextMenu({
         </>
       )}
       {item(t('appCut'), {
+        writable: true,
         key: '⌘X',
         disabled: !hasSelection || !canEdit,
         onClick: run(() => void clipboard('cut')),
@@ -335,22 +379,42 @@ export function EditorContextMenu({
         onClick: run(() => void clipboard('copy')),
       })}
       {item(t('appPaste'), {
+        writable: true,
         key: '⌘V',
         disabled: !canEdit,
         onClick: run(() => void clipboard('paste')),
       })}
       {item(t('appPastePlain'), {
+        writable: true,
         disabled: !canEdit,
         onClick: run(() => void clipboard('pastePlain')),
       })}
+      {item(t('appScSelectAll'), {
+        key: '⌘A',
+        onClick: run(() => { editor.chain().focus().selectAll().run() }),
+      })}
+      {onFind && item(t('appFindPlaceholder'), { key: '⌘F', onClick: run(onFind) })}
       <div className="ctx-sep" />
-      {item(t('appFontMenu'), { key: '⌘D', onClick: run(onFontDialog) })}
-      {item(t('appParagraphMenu'), { key: '⌥⌘M', onClick: run(onParagraphDialog) })}
+      {item(t('appUndo'), {
+        key: '⌘Z',
+        writable: true,
+        disabled: !editor.can().undo(),
+        onClick: run(() => { editor.chain().focus().undo().run() }),
+      })}
+      {item(t('appRedo'), {
+        key: '⌘⇧Z',
+        writable: true,
+        disabled: !editor.can().redo(),
+        onClick: run(() => { editor.chain().focus().redo().run() }),
+      })}
+      <div className="ctx-sep" />
+      {item(t('appFontMenu'), { key: '⌘D', writable: true, onClick: run(onFontDialog) })}
+      {item(t('appParagraphMenu'), { key: '⌥⌘M', writable: true, onClick: run(onParagraphDialog) })}
       {inTable && (
         <>
           <div className="ctx-sep" />
           <div className="ctx-item-wrap" onMouseLeave={() => setSubmenu(null)}>
-            {item(t('ribbonInsert'), { submenuKey: 'tableInsert', disabled: !canEdit })}
+            {item(t('ribbonInsert'), { writable: true, submenuKey: 'tableInsert', disabled: !canEdit })}
             {submenu === 'tableInsert' && canEdit && (
               <div className="ctx-submenu">
                 {(
@@ -373,7 +437,7 @@ export function EditorContextMenu({
             )}
           </div>
           <div className="ctx-item-wrap" onMouseLeave={() => setSubmenu(null)}>
-            {item(t('ribbonTableDeleteMenu'), { submenuKey: 'tableDelete', disabled: !canEdit })}
+            {item(t('ribbonTableDeleteMenu'), { writable: true, submenuKey: 'tableDelete', disabled: !canEdit })}
             {submenu === 'tableDelete' && canEdit && (
               <div className="ctx-submenu">
                 {(
@@ -411,10 +475,12 @@ export function EditorContextMenu({
             )}
           </div>
           {item(t('ribbonMergeCells'), {
+            writable: true,
             disabled: !canEdit || !mergeCells(editor.state),
             onClick: run(() => runTable(mergeCells)),
           })}
           {item(t('ribbonSplitCells'), {
+            writable: true,
             disabled: !canEdit || !splitCell(editor.state),
             onClick: run(() => runTable(splitCell)),
           })}
@@ -423,17 +489,19 @@ export function EditorContextMenu({
       {editor.isActive('instrField') && onUpdateFields && (
         <>
           <div className="ctx-sep" />
-          {item(t('appUpdateField'), { key: 'F9', onClick: run(() => onUpdateFields()) })}
+          {item(t('appUpdateField'), { key: 'F9', writable: true, onClick: run(() => onUpdateFields()) })}
         </>
       )}
       {editor.isActive('docListItem') && !!editor.getAttributes('docListItem').numId && (
         <>
           <div className="ctx-sep" />
           {item(t('appRestartNumbering'), {
+            writable: true,
             disabled: !onRestartNumbering,
             onClick: run(() => onRestartNumbering?.()),
           })}
           {item(t('appContinueNumbering'), {
+            writable: true,
             disabled: !onContinueNumbering,
             onClick: run(() => onContinueNumbering?.()),
           })}
@@ -474,8 +542,8 @@ export function EditorContextMenu({
         <>
           <div className="ctx-sep" />
           <div className="ctx-item-wrap" onMouseLeave={() => setSubmenu(null)}>
-            {item(t('appWrapTextMenu'), { submenuKey: 'wrap' })}
-            {submenu === 'wrap' && (
+            {item(t('appWrapTextMenu'), { writable: true, submenuKey: 'wrap' })}
+            {submenu === 'wrap' && canEdit && (
               <div className="ctx-submenu">
                 {WRAP_OPTIONS.map((opt) => (
                   <button
@@ -493,8 +561,8 @@ export function EditorContextMenu({
             )}
           </div>
           <div className="ctx-item-wrap" onMouseLeave={() => setSubmenu(null)}>
-            {item(t('appArrangeMenu'), { submenuKey: 'arrange' })}
-            {submenu === 'arrange' && (
+            {item(t('appArrangeMenu'), { writable: true, submenuKey: 'arrange' })}
+            {submenu === 'arrange' && canEdit && (
               <div className="ctx-submenu">
                 <button className="ctx-item" onClick={run(bringToFront)}>
                   <span className="ctx-label">{t('appBringToFront')}</span>
@@ -514,8 +582,8 @@ export function EditorContextMenu({
         </>
       )}
       <div className="ctx-sep" />
-      {item(t('appHyperlinkMenu'), { key: '⌘K', onClick: run(onLink) })}
-      {item(t('appNewComment'), { disabled: !canComment, onClick: run(onNewComment) })}
+      {item(t('appHyperlinkMenu'), { key: '⌘K', writable: true, onClick: run(onLink) })}
+      {item(t('appNewComment'), { writable: true, disabled: !canComment, onClick: run(onNewComment) })}
     </div>
   )
 }

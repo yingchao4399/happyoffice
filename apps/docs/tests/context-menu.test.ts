@@ -80,6 +80,72 @@ Object.assign(window, { desktop: { onLanguageChanged: () => () => undefined } })
 setModuleLang('en')
 
 describe('EditorContextMenu', () => {
+  it('supports keyboard navigation while skipping disabled commands', () => {
+    const editor = createEditor()
+    const onClose = vi.fn()
+    const view = render(createElement(EditorContextMenu, menuProps(editor, { onClose, onFind: noop })))
+    const buttons = [...view.container.querySelectorAll<HTMLButtonElement>('.ctx-item:not(:disabled)')]
+    expect(document.activeElement).toBe(buttons[0])
+    act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
+    expect(document.activeElement).toBe(buttons.at(-1))
+    act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })))
+    expect(document.activeElement).toBe(buttons[0])
+    act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })))
+    expect(document.activeElement).toBe(buttons[1])
+    act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(onClose).toHaveBeenCalledOnce()
+    view.unmount()
+    editor.destroy()
+  })
+
+  it('keeps copy/select/find available in read-only mode and explains blocked writes', () => {
+    const editor = createEditor()
+    select(editor, 1, 5)
+    editor.setEditable(false)
+    const onFind = vi.fn()
+    const onFontDialog = vi.fn()
+    const view = render(createElement(EditorContextMenu, menuProps(editor, { onFind, onFontDialog })))
+    const byLabel = (label: string) => [...view.container.querySelectorAll<HTMLButtonElement>('.ctx-item')]
+      .find(button => button.querySelector('.ctx-label')?.textContent === label)!
+    for (const name of ['Cut', 'Paste', 'Paste as Plain Text', 'Undo', 'Redo', 'Font…', 'Paragraph…', 'Hyperlink…', 'New Comment']) {
+      const button = byLabel(name)
+      expect(button, name).toBeTruthy()
+      expect(button.disabled, name).toBe(true)
+      expect(button.title, name).toBe('Read only')
+    }
+    expect(byLabel('Copy').disabled).toBe(false)
+    expect(byLabel('Select All').disabled).toBe(false)
+    act(() => byLabel('Font…').click())
+    expect(onFontDialog).not.toHaveBeenCalled()
+    act(() => byLabel('Find').click())
+    expect(onFind).toHaveBeenCalledOnce()
+    act(() => byLabel('Select All').click())
+    expect(editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to)).toBe('EVs market research')
+    view.unmount()
+    editor.destroy()
+  })
+
+  it('runs undo and redo against real editor history', () => {
+    const editor = createEditor()
+    const original = editor.getText()
+    editor.commands.insertContent('UPDATED ')
+    const updated = editor.getText()
+    expect(updated).not.toBe(original)
+    const find = (container: HTMLElement, label: string) => [...container.querySelectorAll<HTMLButtonElement>('.ctx-item')]
+      .find(button => button.querySelector('.ctx-label')?.textContent === label)!
+    let view = render(createElement(EditorContextMenu, menuProps(editor)))
+    expect(find(view.container, 'Undo').disabled).toBe(false)
+    act(() => find(view.container, 'Undo').click())
+    expect(editor.getText()).toBe(original)
+    view.unmount()
+    view = render(createElement(EditorContextMenu, menuProps(editor)))
+    expect(find(view.container, 'Redo').disabled).toBe(false)
+    act(() => find(view.container, 'Redo').click())
+    expect(editor.getText()).toBe(updated)
+    view.unmount()
+    editor.destroy()
+  })
+
   it('disables selection-dependent items when nothing is selected', () => {
     const editor = createEditor()
     const { container, unmount } = render(createElement(EditorContextMenu, menuProps(editor)))

@@ -257,10 +257,21 @@ export function univerLocaleFor(lang: string): LocaleType | null {
   return UNIVER_LOCALES[lang]?.type ?? null
 }
 
-export async function applyUniverLocale(runtime: UniverRuntime, lang: string): Promise<void> {
+const localeRequests = new WeakMap<UniverRuntime, symbol>()
+
+export async function applyUniverLocale(runtime: UniverRuntime, lang: string, signal?: AbortSignal): Promise<void> {
+  const request = Symbol()
+  localeRequests.set(runtime, request)
+  if (signal?.aborted) return
   const entry = UNIVER_LOCALES[lang]
-  if (!entry) return
+  if (!entry) {
+    // 英文及没有原生语言包的语言都回到已随启动载入的英文包。
+    runtime.univer.__getInjector().get(LocaleService).setLocale(LocaleType.EN_US)
+    return
+  }
   const packs = (await entry.load()).map((mod) => mod.default)
+  // 语言包异步载入期间用户可能切换语言或关闭工作簿。
+  if (signal?.aborted || localeRequests.get(runtime) !== request) return
   const merged = mergeLocales(...packs) as LocalePack
   Object.assign(merged, numberAsTextAlertLocale(merged))
   Object.assign(merged, insertRowsBelowLocale(merged))

@@ -1,6 +1,7 @@
 import type { zh } from './zh'
 
 export const ko = {
+  appCtxSelectAll: '모두 선택',
   appPhPromptTitle: '제목을 추가하려면 클릭',
   appPhPromptSubtitle: '부제목을 추가하려면 클릭',
   appPhPromptBody: '텍스트를 추가하려면 클릭',

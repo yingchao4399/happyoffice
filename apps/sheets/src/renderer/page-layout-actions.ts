@@ -29,7 +29,7 @@ import {
   type HeaderFooterPictureImage,
   type PrintWorksheet,
 } from './print-html'
-import { resolveEffectivePageSetup, type HeaderFooterPictureSlot } from './print-settings'
+import { resolveEffectivePageSetup, type EffectivePageSetup, type HeaderFooterPictureSlot } from './print-settings'
 import { settleVisualNodes, snapshotPrintVisuals } from './print-visuals'
 import { installedVisualFrames, type InstalledVisualFrame } from './WorkbookVisuals'
 import type { LazyWorkbookState, UniverRuntime } from './univer-state'
@@ -351,6 +351,22 @@ async function activeSheetPrintPayload(
   ctx: PageLayoutContext,
   messages: { readonly notLoaded: string; readonly preparing: string },
 ): Promise<WorkbookExportPdfRequest | null> {
+  const session = await prepareSheetPrintSession(ctx, messages)
+  return session?.build(session.setup) ?? null
+}
+
+export interface SheetPrintSession {
+  readonly setup: EffectivePageSetup
+  readonly sheetName: string
+  readonly selectedArea: string | null
+  readonly build: (setup: EffectivePageSetup) => WorkbookExportPdfRequest
+}
+
+/// 打印设置仅作用于本次任务；打开、取消或调参均不写入编辑日志。
+export async function prepareSheetPrintSession(
+  ctx: PageLayoutContext,
+  messages = { notLoaded: t('appPrintNeedsFullLoad'), preparing: t('appPrintPreparing') },
+): Promise<SheetPrintSession | null> {
   const runtime = ctx.univerRef.current
   const worksheet = runtime?.univerAPI.getActiveWorkbook()?.getActiveSheet()
   if (!runtime || !worksheet) {
@@ -381,14 +397,20 @@ async function activeSheetPrintPayload(
     ? await loadHeaderFooterPictures(state.file.sessionId, setup.headerFooterPictures)
     : new Map<string, HeaderFooterPictureImage>()
   const frames = await settledVisualFrames(ctx, state, sheetId)
-  return buildSheetPrintPayload(
-    worksheet as unknown as PrintWorksheet,
+  const visuals = snapshotPrintVisuals(document, frames)
+  const range = runtime.univerAPI.getActiveWorkbook()?.getActiveRange()
+  const selectedArea = range
+    ? `${columnLabel(range.getColumn())}${range.getRow() + 1}:${columnLabel(range.getColumn() + range.getWidth() - 1)}${range.getRow() + range.getHeight()}`
+    : null
+  return {
     setup,
-    `${baseName}.pdf`,
-    worksheet.getSheetName(),
-    pictures,
-    snapshotPrintVisuals(document, frames),
-  )
+    sheetName: worksheet.getSheetName(),
+    selectedArea,
+    build: (printSetup) => buildSheetPrintPayload(
+      worksheet as unknown as PrintWorksheet, printSetup, `${baseName}.pdf`,
+      worksheet.getSheetName(), pictures, visuals,
+    ),
+  }
 }
 
 /// Lays the active sheet out as HTML with its Page Layout settings and asks

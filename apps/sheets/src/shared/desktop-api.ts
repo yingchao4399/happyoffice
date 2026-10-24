@@ -2391,6 +2391,17 @@ export const workbookExportPdfResultSchema = z.union([
 export type WorkbookExportPdfRequest = z.infer<typeof workbookExportPdfRequestSchema>
 export type WorkbookExportPdfResult = z.infer<typeof workbookExportPdfResultSchema>
 
+export const workbookPrintRequestSchema = workbookExportPdfRequestSchema.extend({
+  copies: z.number().int().min(1).max(999).optional(),
+  color: z.boolean().optional(),
+  collate: z.boolean().optional(),
+  duplexMode: z.enum(['simplex', 'shortEdge', 'longEdge']).optional(),
+  pageRanges: z.array(z.object({ from: z.number().int().min(0), to: z.number().int().min(0) }).strict())
+    .max(1000).refine((ranges) => ranges.every((range) => range.to >= range.from)).optional(),
+})
+export type WorkbookPrintRequest = z.infer<typeof workbookPrintRequestSchema>
+export interface WorkbookPrintPreview { base64: string; pageCount: number }
+
 /// Print of the same laid-out HTML through the system print dialog. `ok: false`
 /// without an error is the user closing the dialog.
 export const workbookPrintResultSchema = z.union([
@@ -2611,7 +2622,8 @@ export interface DesktopApi {
     baseName: string,
   ): Promise<{ renamed: boolean; name?: string }>
   exportPdf(request: WorkbookExportPdfRequest): Promise<WorkbookExportPdfResult>
-  printWorkbook(request: WorkbookExportPdfRequest): Promise<WorkbookPrintResult>
+  printWorkbook(request: WorkbookPrintRequest): Promise<WorkbookPrintResult>
+  previewWorkbookPrint(request: WorkbookExportPdfRequest): Promise<WorkbookPrintPreview>
   exportCsv(request: WorkbookExportCsvRequest): Promise<WorkbookExportCsvResult>
   /// First Save of a CSV session: native "keep this format?" dialog.
   confirmCsvSave(): Promise<'csv' | 'xlsx' | 'cancel'>

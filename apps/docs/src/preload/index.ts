@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { installOfficeFileBridge } from '@genoffice/electron-utils/office-file-bridge'
+
+installOfficeFileBridge(contextBridge, ipcRenderer)
 import type { IpcRendererEvent } from 'electron'
 import { VIEW_IMAGE_CHANNEL } from '../shared/ipc'
 import type { AiPanelPrefs } from '@genoffice/ui'
@@ -119,7 +122,7 @@ const api: DesktopApi = {
   getRecentFiles: () => ipcRenderer.invoke('docs:recent'),
   pickImage: () => ipcRenderer.invoke('docs:pick-image'),
   fontMetrics: (family: string) => ipcRenderer.invoke('docs:font-metrics', family),
-  print: (scale?: number) => ipcRenderer.invoke('docs:print', scale),
+  print: (scale, job) => ipcRenderer.invoke('docs:print', scale, job),
   exportPdf: (
     defaultName: string,
     pageWidthTwips: number,

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { parsePrintJobSettings } from '@genoffice/electron-utils/print-job-settings'
 import {
   appendFileSync,
   existsSync,
@@ -46,6 +47,7 @@ import {
   installNavigationGuard,
   isHeadlessMode,
   printHtmlToPdf,
+  printWithSystemDialog,
   safeExternalUrl,
   saveAsSuggestion,
   saveImageFromUrl,
@@ -2191,6 +2193,15 @@ let rendererReady = false
 let pendingOpenPath = findDocxPath(process.argv)
 /** documents queued for windows/tabs spawned via New Tab, keyed by webContents id */
 const pendingWindowOpens = new Map<number, string>()
+type DocxSource = {
+  size: number
+  mtimeMs: number
+  lazy: Awaited<ReturnType<typeof openLazyDocx>>
+  original: Buffer | null
+}
+type PreparedDocxSource = { ok: true; value: DocxSource } | { ok: false; error: unknown }
+/** 视图启动与磁盘/媒体读取并行；密码和恢复确认仍在正式消费打开请求时进行。 */
+const pendingWindowSources = new Map<number, { path: string; promise: Promise<PreparedDocxSource> }>()
 /** webContents ids that should open as a new blank doc instead of the start screen */
 const pendingNewBlankIds = new Set<number>()
 
@@ -2635,21 +2646,41 @@ async function showOpenError(wcId: number, detail: string): Promise<void> {
   else await dialog.showMessageBox(options)
 }
 
+async function prepareDocxSource(filePath: string, wcId: number): Promise<DocxSource> {
+  const startedAt = performance.now()
+  const { size, mtimeMs } = await stat(filePath)
+  const lazy = await openLazyDocx(filePath, wcId)
+  const original = (lazy?.bytes.length ?? size) > MAX_OPEN_BYTES
+    ? null
+    : lazy?.bytes ?? (await readFile(filePath))
+  performance.measure('office.docs.read-source', { start: startedAt, end: performance.now() })
+  return { size, mtimeMs, lazy, original }
+}
+
 async function loadDocx(
   filePath: string,
   wcId: number,
   password?: string,
 ): Promise<OpenDocxResult> {
+  const loadStartedAt = performance.now()
   if (typeof filePath !== 'string' || !/\.docx$/i.test(filePath)) return null
   if (!existsSync(filePath)) return null
-  const size = (await stat(filePath)).size
-  const lazy = await openLazyDocx(filePath, wcId)
+  const pendingSource = pendingWindowSources.get(wcId)
+  pendingWindowSources.delete(wcId)
+  const prepared = pendingSource?.path === filePath ? await pendingSource.promise : null
+  if (prepared && !prepared.ok) throw prepared.error
+  const current = prepared?.ok ? await stat(filePath) : null
+  const unchanged = prepared?.ok && current?.size === prepared.value.size && current.mtimeMs === prepared.value.mtimeMs
+  const { size, lazy, original: preparedOriginal } = unchanged
+    ? prepared.value
+    : await prepareDocxSource(filePath, wcId)
   if ((lazy?.bytes.length ?? size) > MAX_OPEN_BYTES) {
     const mb = MAX_OPEN_BYTES / 1024 / 1024
     await showOpenError(wcId, `${basename(filePath)}: ${tm('errTooLarge', { mb })}`)
     return null
   }
-  const original = lazy?.bytes ?? (await readFile(filePath))
+  if (!preparedOriginal) return null
+  const original = preparedOriginal
   // Password-protected docx (ECMA-376 CFB container): without a password, hand
   // back a marker — the renderer prompts and retries via docs:open-decrypt.
   // No side effects (recents/write grant) until the password checks out.
@@ -2666,7 +2697,9 @@ async function loadDocx(
   // the archive keeps the on-disk original as-is (encrypted ones included: they
   // reopen with the user's password), so a bad save never loses the source file
   const hash = lazy?.hash ?? sha256Hex(original)
+  const archiveStartedAt = performance.now()
   await archiveOriginal(filePath, hash, size)
+  performance.measure('office.docs.archive-original', { start: archiveStartedAt, end: performance.now() })
   const recovery = await maybeRecoverDocBytes(filePath, plainBytes)
   let bytes = recovery.bytes
   let recovered = recovery.recovered
@@ -2687,6 +2720,7 @@ async function loadDocx(
   markDiskEncrypted(wcId, filePath, encrypted)
   // record the on-disk file, not the recovery copy: what matters is what save would overwrite
   await rememberDiskState(wcId, filePath, hash)
+  performance.measure('office.docs.load-source', { start: loadStartedAt, end: performance.now() })
   return {
     path: filePath,
     name: basename(filePath),
@@ -3914,21 +3948,15 @@ export function registerDocsIpc(): void {
   const printScale = (scale?: number) =>
     scale && scale > 0 && scale !== 1 ? { scaleFactor: Math.round(scale * 100) } : {}
 
-  ipcMain.handle('docs:print', async (event, scale?: number) => {
+  ipcMain.handle('docs:print', async (event, scale?: number, job?: unknown) => {
     // print the calling tab's own content; zero margins — the docx page padding provides them.
     // Resolves when the system dialog is dismissed; the print dialog stays open on cancel
     // (ok=false without error) and surfaces real failures.
-    return new Promise<{ ok: boolean; error?: string }>((resolve) => {
-      event.sender.print(
-        { margins: { marginType: 'none' }, ...printScale(scale) },
-        (success, failureReason) => {
-          resolve({
-            ok: success,
-            ...(failureReason && !/cancel/i.test(failureReason) ? { error: failureReason } : {}),
-          })
-        },
-      )
-    })
+    try {
+      if (scale !== undefined && (!Number.isFinite(scale) || scale < 0.1 || scale > 2)) throw new Error('INVALID_PRINT_SETTINGS')
+      const result = await printWithSystemDialog(event.sender, { margins: { marginType: 'none' }, ...printScale(scale), ...parsePrintJobSettings(job) })
+      return { ok: result.success, ...(result.failureReason && !/cancel/i.test(result.failureReason) ? { error: result.failureReason } : {}) }
+    } catch (error) { return { ok: false, error: error instanceof Error ? error.message : 'WINDOWS_PRINT_FAILED' } }
   })
 
   ipcMain.handle(
@@ -4843,7 +4871,21 @@ export function createDocsView(openPath?: string): WebContentsView {
     },
   })
 
-  if (openPath) pendingWindowOpens.set(view.webContents.id, openPath)
+  if (openPath) {
+    pendingWindowOpens.set(view.webContents.id, openPath)
+    const wcId = view.webContents.id
+    pendingWindowSources.set(wcId, {
+      path: openPath,
+      // 捕获异常，防止 renderer 尚未消费时产生未处理的 Promise 拒绝。
+      promise: prepareDocxSource(openPath, wcId).then(
+        (value) => {
+          if (!webContents.fromId(wcId)) forgetLazyMediaOwner(wcId)
+          return { ok: true, value }
+        },
+        (error) => ({ ok: false, error }),
+      ),
+    })
+  }
 
   view.webContents.setWindowOpenHandler(({ url }) => {
     const target = safeExternalUrl(url)
@@ -4858,6 +4900,7 @@ export function createDocsView(openPath?: string): WebContentsView {
   const wcId = view.webContents.id
   view.webContents.once('destroyed', () => {
     pendingWindowOpens.delete(wcId)
+    pendingWindowSources.delete(wcId)
     dropDocWriter(wcId)
     closeCheckWaiters.get(wcId)?.({ dirty: false, autoSave: false })
     closeCheckWaiters.delete(wcId)

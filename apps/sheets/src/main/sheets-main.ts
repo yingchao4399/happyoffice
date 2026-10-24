@@ -129,6 +129,7 @@ import {
   workbookCreateDocumentRequestSchema,
   workbookExportCsvRequestSchema,
   workbookExportPdfRequestSchema,
+  workbookPrintRequestSchema,
   workbookRangeRequestSchema,
   workbookRangeResultSchema,
   workbookSaveEditsAbortSchema,
@@ -143,7 +144,7 @@ import { IPC_CHANNELS } from '../shared/ipc-channels'
 import { atomicWriteFile } from './atomic-write'
 import { closeGuardDecision } from './close-guard'
 import { SaveEditsTransferStore } from './save-edits-transfer'
-import { exportPdf, printWorkbook } from './pdf-export'
+import { exportPdf, printWorkbook, previewWorkbookPrint } from './pdf-export'
 import { allowsAutomaticWorkbookRecovery } from './recovery-policy'
 import {
   setSystemShortDate,
@@ -2756,7 +2757,12 @@ export function registerSheetsIpc(): void {
 
   ipcMain.handle(IPC_CHANNELS.printWorkbook, async (event, input: unknown) => {
     sessionFor(event)
-    return printWorkbook(event, workbookExportPdfRequestSchema.parse(input))
+    return printWorkbook(event, workbookPrintRequestSchema.parse(input))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.previewWorkbookPrint, async (event, input: unknown) => {
+    sessionFor(event)
+    return previewWorkbookPrint(event, workbookExportPdfRequestSchema.parse(input))
   })
 
   ipcMain.handle(IPC_CHANNELS.exportCsv, async (event, input: unknown) => {
@@ -3839,6 +3845,49 @@ async function writeWorkbookTo(
 
 /** Copies the workbook into the temp snapshot dir; the copy is the session's
  * save base (see SessionInfo.snapshotPath). */
+// 序列化到临时副本，保持当前 session、journal、路径和未保存状态。
+export async function exportWorkbookSnapshot(contents: WebContents, input: unknown): Promise<Uint8Array> {
+  const entry = sessionFor({ sender: contents } as IpcMainInvokeEvent)
+  const request = resolveTransferredEdits(entry, workbookSaveRequestSchema.parse(input))
+  const session = entry.sessions.get(request.sessionId)
+  if (!session) throw new Error('Unknown workbook session.')
+  const temporary = join(app.getPath('temp'), `friday-workbook-export-${randomUUID()}.xlsx`)
+  const temporarySessions = new Map<string, SessionInfo>()
+  const structural = request.structuralOps.length > 0
+  const shifted = structural || request.sheetOps.length > 0
+  const heldTables = structural ? request.tableAdditions : []
+  const heldPivots = shifted ? request.pivotAdditions : []
+  const heldNames = shifted ? request.definedNamesState : null
+  try {
+    await writeWorkbookTo(entry.client, session, {
+      ...request,
+      tableAdditions: heldTables.length ? [] : request.tableAdditions,
+      pivotAdditions: heldPivots.length ? [] : request.pivotAdditions,
+      definedNamesState: shifted ? null : request.definedNamesState,
+    }, temporary)
+    if (heldTables.length || heldPivots.length || heldNames !== null) {
+      const reopened = await openWorkbookSession(entry.client, temporary, temporarySessions)
+      const transient = temporarySessions.get(reopened.sessionId)
+      if (!transient) throw new Error('OFFICE_EXPORT_SNAPSHOT_MISSING')
+      const second = workbookSaveRequestSchema.parse({
+        sessionId: reopened.sessionId, mode: 'save', edits: [], bulkConstantFills: [], structuralOps: [],
+        chartEdits: [], visualEdits: [], visualAdditions: [], tableAdditions: heldTables,
+        pivotAdditions: heldPivots, sheetOps: [], sheetOrder: [], filterStates: [], hyperlinkEdits: [],
+        cfStates: [], dvStates: [], pageSetupStates: [], noteStates: [], pivotCacheRefreshPaths: [],
+        pivotRefreshUpdates: [], sheetProtections: [], sparklineAdditions: [], formulaValues: [],
+        definedNamesState: heldNames, themeState: null, workbookProtectionState: null, protectedRangeStates: [],
+      })
+      await writeWorkbookTo(entry.client, transient, second, temporary)
+    }
+    return new Uint8Array(await readFile(temporary))
+  } finally {
+    for (const [id, transient] of temporarySessions) {
+      await cleanupSessionResources({ tempRoot: app.getPath('temp'), snapshotPath: transient.snapshotPath, closeSidecar: () => entry.client.close(id) })
+    }
+    await rm(temporary, { force: true }).catch(() => {})
+  }
+}
+
 async function snapshotWorkbook(path: string): Promise<string> {
   const dir = join(app.getPath('temp'), 'genoffice-sheets-sessions')
   await mkdir(dir, { recursive: true })

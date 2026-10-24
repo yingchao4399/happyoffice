@@ -145,6 +145,7 @@ describe('sheets control hook', () => {
       result: {
         sheet: 'Data',
         range: 'A1:B2',
+        bounds: { startRow: 1, startColumn: 1, endRow: 2, endColumn: 2 },
         values: [
           [1, 2],
           [3, 4],

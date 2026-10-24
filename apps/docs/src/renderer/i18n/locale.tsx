@@ -1,11 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createI18n, htmlLang, type Lang, type Params } from '@genoffice/i18n'
-import { strings } from './strings'
+import { htmlLang, type Lang, type Params } from '@genoffice/i18n'
+import { loadLanguage, translate, type StringKey } from './language-packs'
 
-const translate = createI18n(strings)
-
-export type StringKey = keyof typeof strings.zh
+export { loadLanguage, type StringKey } from './language-packs'
 export type TFunc = (key: StringKey, params?: Params) => string
 
 // mirror for non-React modules (pagination, editor extensions, AI tools …);
@@ -74,15 +72,24 @@ const LocaleContext = createContext<Lang>('zh')
 
 export function LocaleProvider({ initial, children }: { initial: Lang; children: ReactNode }) {
   const [lang, setLang] = useState<Lang>(initial)
-  useEffect(
-    () =>
-      window.desktop.onLanguageChanged((next) => {
+  useEffect(() => {
+    let generation = 0
+    let active = true
+    const unsubscribe = window.desktop.onLanguageChanged((next) => {
+      const mine = ++generation
+      void loadLanguage(next).then(() => {
+        // 慢语言包不能覆盖用户之后选中的语言，也不能在卸载后修改全局语言。
+        if (!active || mine !== generation) return
         setModuleLang(next)
         document.documentElement.lang = htmlLang(next)
         setLang(next)
-      }),
-    [],
-  )
+      }).catch(() => {
+        // 加载失败保留完整的上一语言，避免混合语言和未处理 Promise 拒绝。
+        console.error('[Office] 语言资源加载失败')
+      })
+    })
+    return () => { active = false; unsubscribe() }
+  }, [])
   return <LocaleContext.Provider value={lang}>{children}</LocaleContext.Provider>
 }
 

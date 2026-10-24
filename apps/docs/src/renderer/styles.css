@@ -9901,12 +9901,14 @@ ruby.doc-ruby rt {
   white-space: nowrap;
 }
 
-.ctx-item:hover:not(:disabled) {
+.ctx-item:hover:not(:disabled),
+.ctx-item:focus-visible {
   background: var(--word-blue);
   color: var(--docs-on-accent);
 }
 
-.ctx-item:hover:not(:disabled) .ctx-key {
+.ctx-item:hover:not(:disabled) .ctx-key,
+.ctx-item:focus-visible .ctx-key {
   color: var(--docs-on-accent-dim);
 }
 
@@ -10962,23 +10964,24 @@ tr > .page-gap-cut {
   transform: translate(-50%, -8px);
   z-index: 2000;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 8px 16px;
   border-radius: 8px;
   background: var(--docs-toast-bg);
   color: var(--docs-toast-ink);
   font-size: 13px;
+  line-height: 1.4;
   box-shadow: var(--docs-shadow-toast);
   opacity: 0;
   pointer-events: none;
   transition:
     opacity 0.18s ease,
     transform 0.18s ease;
-  max-width: 60vw;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  width: max-content;
+  max-width: min(640px, calc(100vw - 32px));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .app-toast.show {

@@ -8,6 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./drop-open": "./src/drop-open.ts",
+    "./office-file-bridge": "./src/office-file-bridge.ts",
+    "./print-job-settings": "./src/print-job-settings.ts",
     "./generated-images": "./src/generated-images.ts",
     "./headless-export": "./src/headless-export.ts",
     "./remote-image": "./src/remote-image.ts",

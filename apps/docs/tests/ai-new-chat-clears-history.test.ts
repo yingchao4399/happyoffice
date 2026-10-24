@@ -90,12 +90,14 @@ describe('AiPanel new chat', () => {
     const restoreApi = mockProjectApi()
     try {
       const editor = createEditor()
+      const scroll = vi.spyOn(Element.prototype, 'scrollTo')
       const { container, cleanup } = mount(createElement(AiPanel, panelProps(editor)))
       try {
         await flush()
         await flush()
         // the previous conversation is painted above the live turn…
         expect(container.querySelectorAll('.ai-msg-historic').length).toBe(1)
+        expect(scroll).toHaveBeenCalled()
         // …and New chat is offered even though the live turn is empty
         const button = container.querySelector<HTMLButtonElement>(
           `button[aria-label="${t('aiNewChatTitle')}"]`,
@@ -110,6 +112,7 @@ describe('AiPanel new chat', () => {
       } finally {
         cleanup()
         editor.destroy()
+        scroll.mockRestore()
       }
     } finally {
       restoreApi()

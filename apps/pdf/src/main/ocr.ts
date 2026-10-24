@@ -8,57 +8,58 @@
  */
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  createVisionOcrEngine,
-  createWindowsOcrEngine,
-} from '../../../../packages/pdf2docx/src/ocr-vision'
-import type { OcrEngine } from '../../../../packages/pdf2docx/src/ocr'
+import { existsSync } from 'node:fs'
+import { execFile } from 'node:child_process'
 import type { PdfOcrLine } from '../shared/ipc'
 
-let ocrEngine: OcrEngine | null | undefined
+let ocrHelper: string | null | undefined
 
-function ensureOcrEngine(): OcrEngine | null {
-  if (ocrEngine !== undefined) return ocrEngine
+function ensureOcrHelper(): string | null {
+  if (ocrHelper !== undefined) return ocrHelper
+  if (!['win32', 'darwin'].includes(process.platform)) return null
   const here = dirname(fileURLToPath(import.meta.url))
   const helper = process.platform === 'darwin' ? 'vision-ocr' : 'win-ocr.exe'
-  const create = process.platform === 'darwin' ? createVisionOcrEngine : createWindowsOcrEngine
   const candidates = [
     ...(process.resourcesPath ? [join(process.resourcesPath, 'ocr', helper)] : []),
+    join(here, '../ocr', helper),
     join(here, '../../../../packages/pdf2docx/ocr-helper', helper),
   ]
-  ocrEngine = null
-  for (const path of candidates) {
-    const engine = create(path)
-    if (engine) {
-      ocrEngine = engine
-      break
-    }
-  }
-  return ocrEngine
+  ocrHelper = candidates.find(candidate => existsSync(candidate)) ?? null
+  return ocrHelper
 }
 
 /** PNG (base64) → OCR lines; null only when the platform has no engine (callers
     stop trying), [] when recognition failed for this image (callers move on) */
-export function ocrPagePng(pngBase64: string): PdfOcrLine[] | null {
-  const engine = ensureOcrEngine()
-  if (!engine) return null
+export async function ocrPagePng(pngBase64: string, signal?: AbortSignal): Promise<PdfOcrLine[] | null> {
+  const helper = ensureOcrHelper()
+  if (!helper) return null
   let png: Uint8Array
   try {
     png = Uint8Array.from(Buffer.from(pngBase64, 'base64'))
   } catch {
     return []
   }
-  const result = engine(png, { widthPt: 0, heightPt: 0 }) // helpers ignore the page size hint
-  if (!result) return []
+  // 主进程不能同步等待每页 OCR；识别大扫描件时窗口、剪贴板与其他文档仍可交互。
+  const output = await new Promise<string | null>((resolve, reject) => {
+    const child = execFile(helper, [], { windowsHide: true, timeout: 30000, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8', ...(signal ? { signal } : {}) }, (error, stdout) => {
+      if (error) { if (error.code === 4) resolve(null); else reject(new Error('PDF_OCR_FAILED')) }
+      else resolve(stdout)
+    })
+    child.stdin?.on('error', () => {})
+    child.stdin?.end(png)
+  })
+  if (output === null) return null
+  const result = JSON.parse(output.replace(/^\uFEFF/, '')) as { lines?: { t: string; c: number; b: [number, number, number, number]; chars?: { t: string; b: [number, number, number, number] }[] }[] }
+  if (!Array.isArray(result.lines)) throw new Error('PDF_OCR_FAILED')
   return result.lines.map((l) => ({
-    text: l.text,
-    confidence: l.confidence,
-    box: [l.box.x0, l.box.y0, l.box.x1, l.box.y1],
+    text: l.t,
+    confidence: l.c,
+    box: l.b,
     ...(l.chars
       ? {
           chars: l.chars.map((c) => ({
-            text: c.text,
-            box: [c.box.x0, c.box.y0, c.box.x1, c.box.y1] as [number, number, number, number],
+            text: c.t,
+            box: c.b,
           })),
         }
       : {}),

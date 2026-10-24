@@ -11,6 +11,7 @@ import * as arrangeActions from './arrange-actions'
 import * as slideActions from './slide-actions'
 import * as showActions from './show-actions'
 import { shouldRouteUndoToDeck } from './undo-routing'
+import { selectAllElements } from './select-all'
 
 /** Whether focus is in a text input (input/textarea/contentEditable) — these cases use native undo/delete */
 function inTextField(): boolean {
@@ -185,10 +186,7 @@ export function handleGlobalKeydown(
   // ⌘A: select all elements on the page (excluding decoration layer/placeholder chips/full-page backgrounds)
   if (mod && !e.altKey && (e.key === 'a' || e.key === 'A')) {
     e.preventDefault()
-    const ids = (slide?.nodes ?? [])
-      .filter((n) => !n.decoration && !n.background && n.type !== 'placeholder-chip')
-      .map((n) => n.sourceId)
-    if (ids.length) ctx.setSelectedIds(ids)
+    selectAllElements(ctx)
     return
   }
   // Nothing selected: ↑/↓ and PageUp/PageDown switch slides (PowerPoint

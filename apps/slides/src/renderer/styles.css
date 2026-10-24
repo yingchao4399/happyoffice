@@ -5083,6 +5083,11 @@ body.vib .slide-list {
   border-radius: 6px;
   box-shadow: var(--slides-shadow-menu);
   padding: 4px;
+  box-sizing: border-box;
+  max-height: calc(100vh - 8px);
+  max-width: calc(100vw - 8px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .shape-gallery-pop {
@@ -5105,7 +5110,8 @@ body.vib .slide-list {
   white-space: nowrap;
 }
 
-.ctx-item:hover:not(:disabled) {
+.ctx-item:hover:not(:disabled),
+.ctx-item:focus-visible:not(:disabled) {
   background: var(--hover);
 }
 
@@ -5114,7 +5120,8 @@ body.vib .slide-list {
   cursor: default;
 }
 
-.ctx-item.danger:hover:not(:disabled) {
+.ctx-item.danger:hover:not(:disabled),
+.ctx-item.danger:focus-visible:not(:disabled) {
   background: var(--slides-danger-bg);
   color: var(--slides-ai-error);
 }

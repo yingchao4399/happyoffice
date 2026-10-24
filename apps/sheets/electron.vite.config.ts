@@ -29,6 +29,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin({ exclude: ['@genoffice/electron-utils'] })],
   },
   renderer: {
+    resolve: { dedupe: ['react', 'react-dom'] },
     plugins: [react()],
   },
 })

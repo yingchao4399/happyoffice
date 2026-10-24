@@ -19,6 +19,8 @@ export default defineConfig({
       '@genoffice/ai-provider/browser': local('../../packages/ai-provider/src/browser.ts'),
       '@genoffice/ai-provider': local('../../packages/ai-provider/src/index.ts'),
       '@genoffice/i18n': local('../../packages/i18n/src/index.ts'),
+      '@genoffice/ui/office-file-menu.css': local('../../packages/ui/src/office-file-menu.css'),
+      '@genoffice/ui/office-file-menu': local('../../packages/ui/src/office-file-menu.tsx'),
       '@genoffice/ui': local('../../packages/ui/src/index.ts'),
     },
   },

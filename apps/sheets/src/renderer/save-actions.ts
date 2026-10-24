@@ -69,6 +69,7 @@ const confirmedCsvSaves = new Set<string>()
 /** What a save actually did — the MCP bridge needs the outcome, fire-and-forget callers ignore it. */
 export interface SaveOutcome {
   ok: boolean
+  bytes?: Uint8Array
   /** absolute path of the written file when ok */
   path?: string
   /** the main-process refusal, verbatim, when the save request itself failed */
@@ -86,7 +87,7 @@ export interface SaveOutcome {
  */
 export async function handleSave(
   ctx: SaveContext,
-  mode: 'save' | 'save-as' | 'recovery',
+  mode: 'save' | 'save-as' | 'recovery' | 'snapshot',
   quiet = false,
   explicitTarget?: { path: string; overwrite: boolean },
 ): Promise<SaveOutcome> {
@@ -264,7 +265,7 @@ export async function handleSave(
   // bytes themselves, not the journal: a plain Save with nothing pending must
   // still write back to the original file (and clear the recovery copy).
   const restoreWriteBack = mode === 'save' && state.file.restoredFromRecovery === true
-  if (total === 0 && mode !== 'save-as' && !restoreWriteBack) {
+  if (total === 0 && mode !== 'save-as' && mode !== 'snapshot' && !restoreWriteBack) {
     if (mode !== 'recovery') ctx.setMessage(t('appNoEditsToSave'))
     return { ok: false }
   }
@@ -337,7 +338,7 @@ export async function handleSave(
   }
   const payload = {
     sessionId: state.file.sessionId,
-    mode: mode === 'recovery' ? ('save' as const) : mode,
+    mode: mode === 'recovery' || mode === 'snapshot' ? ('save' as const) : mode,
     // MCP explicit-path save: main skips the Save-As dialog and enforces the
     // overwrite policy from these two fields
     ...(explicitTarget
@@ -369,6 +370,15 @@ export async function handleSave(
     themeState,
     workbookProtectionState,
     protectedRangeStates,
+  }
+  if (mode === 'snapshot') {
+    try {
+      if (!window.fridayOffice) return { ok: false }
+      const bytes = await window.fridayOffice.snapshot(payload)
+      return { ok: true, bytes }
+    } finally {
+      await abortStagedEditsTransfer(window.desktopApi, state.file.sessionId, staged.editsTransferId)
+    }
   }
   if (mode === 'recovery') {
     // Best-effort; a failure only means this tick's copy is skipped — but an

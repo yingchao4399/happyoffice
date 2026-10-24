@@ -6,7 +6,6 @@
  * so state never goes stale.
  */
 import type { Editor } from '@tiptap/core'
-import { history } from '@tiptap/pm/history'
 import {
   applyPageNumType,
   applySectionSettings,
@@ -85,6 +84,7 @@ import { hasPrintableHeaderFooter } from './pagination'
 import { clearPrintZoom, setPrintZoom } from './print-zoom'
 import { showToast } from './components/toast-bus'
 import { buildStandaloneHtml } from './html-export'
+import { resetEditorHistory } from './editor/reset-history'
 
 /** An export waiting for the pagination preview to mount; resolve settles the caller's exportPdf promise. */
 export type PendingPdfExport = { outPath?: string; resolve: (ok: boolean) => void }
@@ -110,6 +110,7 @@ export interface FileActionContext {
   setDocCss: (css: string) => void
   /** true while a phased open streams the document tail (editor stays read-only) */
   setDocLoading: (loading: boolean) => void
+  prepareInitialLayout?: (section: SectionSettings, comments: CommentInfo[]) => void
   setShowPagePreview: (show: boolean) => void
   section: SectionSettings | null
   sectionDirty: boolean
@@ -251,15 +252,6 @@ export function hasUnanchoredComments(comments: CommentInfo[], blocks: Block[]):
   )
 }
 
-function resetEditorHistory(editor: Editor): void {
-  const plugin = editor.state.plugins.find((p) =>
-    String((p as unknown as { key: string }).key).startsWith('history$'),
-  )
-  if (!plugin) return
-  editor.unregisterPlugin('history')
-  editor.registerPlugin(history((plugin.spec as { config?: object }).config))
-}
-
 /** doc-level layout inputs living outside CSS: default tab grid + hyphenation lang */
 function applyDocLayoutSettings(editor: Editor, parsed: ParsedDocFull): void {
   setNoteNumFmts({ footnote: parsed.footnoteProps, endnote: parsed.endnoteProps })
@@ -340,21 +332,29 @@ export async function loadFile(
   }
   const generation = ++openGeneration
   try {
+    const parseStart = performance.now()
     const parsed = await parseDocx(new Uint8Array(result.data))
+    performance.measure('office.docs.parse', { start: parseStart, end: performance.now() })
     if (generation !== openGeneration) return 'superseded'
     setLazyMediaHashes(parsed.extras.lazyMediaHashes)
     // before setContent: blockAttrs/marks bake fontTable-driven factors and chains into the DOM
+    const fontStart = performance.now()
     const adopted = await adoptEmbeddedFonts(parsed.embeddedFonts)
+    performance.measure('office.docs.embedded-fonts', { start: fontStart, end: performance.now() })
     if (!adopted || generation !== openGeneration) return 'superseded'
     setDocFontTable(parsed.fontTable)
     ctx.editor.storage.listNumbering.styles = parsed.styles
     ctx.editor.storage.listNumbering.docDefaults = parsed.docDefaults
     ctx.editor.storage.listNumbering.defs = parsed.numbering
+    // 首次打开在空视图上确定缩放，避免完整文档挂载后再缩放并强制布局。
+    ctx.prepareInitialLayout?.(readSectionSettings(parsed), parsed.comments)
     applyDocLayoutSettings(ctx.editor, parsed)
+    const contentStart = performance.now()
     setContentPhased(
       phasedHostFor(ctx),
       blocksToPmDoc(parsed.blocks, readSections(parsed), pmDocOptions(parsed)),
     )
+    performance.measure('office.docs.set-content', { start: contentStart, end: performance.now() })
     resetEditorHistory(ctx.editor)
     noteDocumentSwapped()
     ctx.setDoc({
@@ -438,7 +438,9 @@ export async function loadFile(
     // Recovery content still only exists in the autosave copy. Keep it dirty
     // until an explicit/automatic save lands it on the original path.
     ctx.dirtyRef.current = openedFileStartsDirty(result)
+    const checkStart = performance.now()
     const missing = checkMissingFonts(collectDocFonts(parsed))
+    performance.measure('office.docs.check-fonts', { start: checkStart, end: performance.now() })
     if (missing.length > 0) {
       const names = missing
         .slice(0, 3)

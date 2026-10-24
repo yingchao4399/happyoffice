@@ -68,6 +68,18 @@ export function normalizePrintRatio(ratio: number): number {
   return Math.min(Math.max(ratio, MIN_PRINT_RATIO), MAX_PRINT_RATIO)
 }
 
+/** 原生打印必须与预览使用同一页面方向，不能继承打印机上次的纵向设置。 */
+export function printPageLandscape(o: Pick<PrintDocOptions, 'layout' | 'ratio' | 'orientation'>): boolean {
+  return o.layout === 'full' ? normalizePrintRatio(o.ratio) >= 1 : o.orientation === 'landscape'
+}
+
+/** 原生打印尺寸单位为微米；方向单独交给 landscape，避免驱动再次交换宽高。 */
+export function printPageSizeMicrons(o: Pick<PrintDocOptions, 'layout' | 'ratio'>): { width: number; height: number } {
+  const width = o.layout === 'full' ? Math.round(normalizePrintRatio(o.ratio) * SLIDE_H * 1000) / 1000 : A4_W
+  const height = o.layout === 'full' ? SLIDE_H : A4_H
+  return { width: Math.round(Math.min(width, height) * 25400), height: Math.round(Math.max(width, height) * 25400) }
+}
+
 export function buildPrintDocumentHtml(o: PrintDocOptions): string {
   const layout = o.layout
   const isFull = layout === 'full'

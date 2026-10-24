@@ -10,6 +10,8 @@
  * preview source, so what the dialog shows is exactly what prints.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { PrintJobSettings, printFailureText } from '@genoffice/ui/print-job-settings'
+import { DEFAULT_PRINT_JOB } from '@genoffice/electron-utils/print-job-settings'
 import { useI18n } from '../i18n/locale'
 import { parsePrintRange } from '../print-range'
 import { clearPrintZoom, setPrintZoom } from '../print-zoom'
@@ -27,7 +29,8 @@ export function PrintDialog({
   onClose: () => void
   setStatus: (s: string) => void
 }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
+  const [job, setJob] = useState({ ...DEFAULT_PRINT_JOB })
   const [pageCount, setPageCount] = useState(0)
   const [page, setPage] = useState(0)
   const [rangeMode, setRangeMode] = useState<RangeMode>('all')
@@ -120,12 +123,12 @@ export function PrintDialog({
     els.forEach((el, i) => el.classList.toggle('pv-print-skip', !sel.has(i)))
     const scale = setPrintZoom()
     try {
-      const r = await window.desktop.print(scale)
+      const r = await window.desktop.print(scale, job)
       if (r.ok) {
         onClose()
         return
       }
-      if (r.error) setStatus(t('appPrintFailed', { error: r.error }))
+      if (r.error) setStatus(t('appPrintFailed', { error: printFailureText(lang, r.error) }))
       // not ok without an error = canceled in the system dialog: keep the dialog open
     } finally {
       clearPrintZoom()
@@ -172,6 +175,7 @@ export function PrintDialog({
             )}
           </div>
           <div className="print-options">
+            <PrintJobSettings lang={lang} value={job} onChange={setJob} disabled={printing} />
             <fieldset>
               <legend>{t('appPrintRange')}</legend>
               <label className="print-radio">

@@ -41,11 +41,19 @@ export function handleSheetsControl(
     const range = workbook.getActiveRange()
     if (!range) return { status: 'ok', result: { none: true, sheet: sheet.getSheetName() } }
     const cells = range.getWidth() * range.getHeight()
+    const startRow = range.getRow()
+    const startColumn = range.getColumn()
     return {
       status: 'ok',
       result: {
         sheet: sheet.getSheetName(),
         range: range.getA1Notation(),
+        bounds: {
+          startRow,
+          startColumn,
+          endRow: startRow + range.getHeight() - 1,
+          endColumn: startColumn + range.getWidth() - 1,
+        },
         ...(cells <= MAX_SELECTION_VALUES ? { values: range.getValues() } : { cells }),
       },
     }

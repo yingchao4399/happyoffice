@@ -1,6 +1,7 @@
 import type { zh } from './zh'
 
 export const it = {
+  appCtxSelectAll: 'Seleziona tutto',
   appPhPromptTitle: 'Fai clic per aggiungere un titolo',
   appPhPromptSubtitle: 'Fai clic per aggiungere un sottotitolo',
   appPhPromptBody: 'Fai clic per aggiungere del testo',

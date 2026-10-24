@@ -1,6 +1,7 @@
 import type { zh } from './zh'
 
 export const ar = {
+  appCtxSelectAll: 'تحديد الكل',
   appPhPromptTitle: 'انقر لإضافة عنوان',
   appPhPromptSubtitle: 'انقر لإضافة عنوان فرعي',
   appPhPromptBody: 'انقر لإضافة نص',

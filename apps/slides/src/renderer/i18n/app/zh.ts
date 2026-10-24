@@ -1,5 +1,6 @@
 /** app strings, zh: defines the key set every other locale shard must match. */
 export const zh = {
+  appCtxSelectAll: '全选',
   appPhPromptTitle: '单击此处添加标题',
   appPhPromptSubtitle: '单击此处添加副标题',
   appPhPromptBody: '单击此处添加文本',

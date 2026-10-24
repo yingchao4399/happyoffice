@@ -17,6 +17,7 @@ import type {
 } from '../../shared/ipc'
 import type { InkPenSettings, InkTool } from '../ink'
 import type { WordArtPreset } from '@genoffice/ui'
+import type { OfficeFileAction } from '@genoffice/ui/office-file-menu'
 import type { ChartPresetDef, IconDef, SmartArtDef } from '../insert-presets'
 import type { SlideThemePreset } from '../themes'
 import type { ChartStyleInfo } from '@genoffice/pptx-render'
@@ -331,6 +332,8 @@ export interface Props {
   onUndo: () => void
   onRedo: () => void
   onSaveAs: () => void
+  onFileAction?: (command: OfficeFileAction) => void
+  fileBusy?: boolean
   /** Export as PDF (hidden slides skipped) */
   onExportPdf: () => void
   onPrint: () => void
