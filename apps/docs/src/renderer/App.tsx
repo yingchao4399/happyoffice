@@ -663,6 +663,7 @@ export function App() {
   const [headerDirty, setHeaderDirty] = useState(false)
   const [footer, setFooter] = useState<HeaderFooter | null>(null)
   const [footerDirty, setFooterDirty] = useState(false)
+  const [headerFooterEditing, setHeaderFooterEditing] = useState(false)
   const [hfVariants, setHfVariants] = useState<HfVariantsState>(EMPTY_HF_VARIANTS)
   const [hfVariantsDirty, setHfVariantsDirty] = useState<HfVariantKey[]>([])
   const [titlePg, setTitlePg] = useState(false)
@@ -5844,6 +5845,7 @@ export function App() {
         tabRequest={ribbonTabRequest}
         header={header}
         footer={footer}
+        headerFooterEditing={headerFooterEditing}
         titlePg={titlePg}
         evenOddHf={evenOddHf}
         showMarks={showMarks}
@@ -6037,6 +6039,7 @@ export function App() {
                       )}
                       {/* Boolean(): a trailing 0 (empty non-floating image list) must not render as a literal "0" text node */}
                       {Boolean(
+                        !readMode && !!doc && !isProtected ||
                         multiHf ||
                         (hfViewTouched && effHfView !== 'default') ||
                         hfHasVisibleContent(shownHeader, hfImagesOf('header')),
@@ -6047,6 +6050,7 @@ export function App() {
                           images={hfImagesOf('header')}
                           readOnly={isProtected || readMode}
                           onCommit={(next) => commitHf('header', next)}
+                          onEditingChange={setHeaderFooterEditing}
                           pageTotal={pageInfo.total}
                           style={edgeHeaderStyle}
                           boxGeom={
@@ -6078,6 +6082,7 @@ export function App() {
                         onDelete={(id) => deleteNote('endnote', id)}
                       />
                       {Boolean(
+                        !readMode && !!doc && !isProtected ||
                         multiHf ||
                         (hfViewTouched && effHfView !== 'default') ||
                         hfHasVisibleContent(shownFooter, hfImagesOf('footer')),
@@ -6088,6 +6093,7 @@ export function App() {
                           images={hfImagesOf('footer')}
                           readOnly={isProtected || readMode}
                           onCommit={(next) => commitHf('footer', next)}
+                          onEditingChange={setHeaderFooterEditing}
                           pageNo={lastPageNo?.text ?? pageInfo.total}
                           pageTotal={pageInfo.total}
                           style={edgeFooterStyle}

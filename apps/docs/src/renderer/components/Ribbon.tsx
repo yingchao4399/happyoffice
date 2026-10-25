@@ -81,6 +81,7 @@ import {
   applyParagraphStyle,
   setParaAttrs,
 } from './ribbon-tabs'
+import { HeaderFooterTab } from './ribbon-header-footer-tab'
 import { WRAP_OPTIONS } from './ContextMenu'
 import { CropDialog, CutoutDialog } from './PictureDialogs'
 import {
@@ -219,6 +220,8 @@ interface RibbonProps {
   /** external request (e.g. native menu Page Setup) to switch to a specific tab */
   tabRequest?: { tab: string; nonce: number } | null
   header: HeaderFooter | null
+  /** contextual tab is shown while the page header/footer editor has focus */
+  headerFooterEditing?: boolean
   onHeader: (next: HeaderFooter) => void
   onPageNumFormat: () => void
   onInsertField: (instr: string) => void
@@ -331,11 +334,13 @@ const TABS = (
 const TABLE_TABS = ['tableDesign', 'tableLayout'] as const
 const IMAGE_TABS = ['pictureFormat'] as const
 const SHAPE_TABS = ['shapeFormat'] as const
+const HEADER_FOOTER_TABS = ['headerFooter'] as const
 type RibbonTab =
   | (typeof TABS)[number]
   | (typeof TABLE_TABS)[number]
   | (typeof IMAGE_TABS)[number]
   | (typeof SHAPE_TABS)[number]
+  | (typeof HEADER_FOOTER_TABS)[number]
 
 const TABLE_PRESETS = [
   {
@@ -674,6 +679,7 @@ function RibbonInner({
   onAiPreset,
   tabRequest,
   header,
+  headerFooterEditing = false,
   onHeader,
   onPageNumFormat,
   onInsertField,
@@ -2039,12 +2045,45 @@ function RibbonInner({
               {t(TAB_LABEL_KEYS[shapeTab])}
             </button>
           ))}
+        {headerFooterEditing &&
+          HEADER_FOOTER_TABS.map((headerFooterTab) => (
+            <button
+              key={headerFooterTab}
+              className={`ribbon-tab ribbon-tab-contextual ${tab === headerFooterTab ? 'active' : ''}`}
+              onClick={() => {
+                collapse.onTabPress(tab === headerFooterTab)
+                setTab(headerFooterTab)
+                setDropdown(null)
+              }}
+            >
+              {t('ribbonTabHeaderFooter')}
+            </button>
+          ))}
         <span className="ribbon-tabs-spacer" />
         {trailingActions}
       </div>
 
       <div className="ribbon-body" data-ribbon-body="">
-        {tab === 'shapeFormat' && inShape ? (
+        {tab === 'headerFooter' && headerFooterEditing ? (
+          <HeaderFooterTab
+            hasDoc={canEdit}
+            header={header}
+            footer={footer}
+            onHeader={onHeader}
+            onFooter={onFooter}
+            onPageNumFormat={onPageNumFormat}
+            titlePg={titlePg}
+            onTitlePg={onTitlePg}
+            evenOddHf={evenOddHf}
+            onEvenOddHf={onEvenOddHf}
+            section={section}
+            onSection={onSection}
+            onExit={() => {
+              ;(document.activeElement as HTMLElement | null)?.blur()
+              setTab(lastRegularTab.current as RibbonTab)
+            }}
+          />
+        ) : tab === 'shapeFormat' && inShape ? (
           <div className="table-ribbon-body">
             <div className="ribbon-group">
               <div className="ribbon-group-items">

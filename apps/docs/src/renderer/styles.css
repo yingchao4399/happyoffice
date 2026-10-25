@@ -657,6 +657,43 @@ html.genoffice-popover-open .ribbon-tabs {
   flex: 1;
 }
 
+.header-footer-ribbon-body {
+  display: flex;
+  align-items: stretch;
+  min-width: max-content;
+  height: 100%;
+}
+
+.hf-ribbon-field-items,
+.hf-ribbon-options {
+  flex-wrap: wrap;
+  align-content: center;
+  max-width: 420px;
+}
+
+.hf-distance-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--docs-text);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.hf-distance-control input {
+  width: 56px;
+  min-height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--docs-bg);
+  color: var(--docs-text);
+  padding: 2px 4px;
+}
+
+.hf-close-button {
+  margin-left: 4px;
+}
+
 /* Word for Mac shows no group captions under the ribbon */
 .ribbon-group-label {
   display: none;

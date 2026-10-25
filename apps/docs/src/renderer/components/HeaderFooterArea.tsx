@@ -119,6 +119,7 @@ export function HeaderFooterArea({
   images,
   readOnly,
   onCommit,
+  onEditingChange,
   pageNo,
   pageTotal,
   style,
@@ -130,6 +131,8 @@ export function HeaderFooterArea({
   images?: HfImage[]
   readOnly?: boolean
   onCommit: (next: HfValue) => void
+  /** notify the shell so the contextual 页眉和页脚 ribbon can appear */
+  onEditingChange?: (editing: boolean) => void
   /** Page number shown for '#' (may be a section-formatted string); the continuous-flow canvas has no real page number, defaults to 1 */
   pageNo?: number | string
   /** Total page count shown for TOTAL_PAGES_MARK (NUMPAGES field), defaults to 1 */
@@ -165,6 +168,11 @@ export function HeaderFooterArea({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing])
+
+  useEffect(() => {
+    onEditingChange?.(editing)
+    return () => onEditingChange?.(false)
+  }, [editing, onEditingChange])
 
   const commit = () => {
     const el = editRef.current
