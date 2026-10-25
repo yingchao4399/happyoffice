@@ -2785,14 +2785,24 @@ th.cell-rev-del {
 
 .page-hf-header {
   top: var(--header-dist, 48px);
-  border-bottom: 1px dashed var(--docs-paper-hf-line);
+  /* Keep the page clean until the user actually enters header editing. */
+  min-height: 24px;
   padding-bottom: 2px;
 }
 
 .page-hf-footer {
   bottom: var(--footer-dist, 48px);
-  border-top: 1px dashed var(--docs-paper-hf-line);
+  min-height: 24px;
   padding-top: 2px;
+}
+
+/* Word only shows the dotted boundary while the header/footer is active. */
+.page-hf-editing.page-hf-header {
+  border-bottom: 1px dashed var(--docs-paper-hf-line);
+}
+
+.page-hf-editing.page-hf-footer {
+  border-top: 1px dashed var(--docs-paper-hf-line);
 }
 
 /* first/odd/even header-footer switcher (only shown when Different First Page or Different Odd & Even is on) */

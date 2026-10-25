@@ -766,6 +766,20 @@ function RibbonInner({
     }
   }, [tabRequest])
 
+  // Header/footer editing is a contextual Word mode.  The contextual tab is
+  // inserted by the tab strip when the page area enters edit mode, so the
+  // active tab must follow that state as well; otherwise the user sees the
+  // tab label but remains on Home and none of the header/footer commands are
+  // available.  Restore the previous regular tab when editing ends.
+  useEffect(() => {
+    if (headerFooterEditing) {
+      setDropdown(null)
+      setTab('headerFooter')
+    } else {
+      setTab((current) => (current === 'headerFooter' ? lastRegularTab.current : current))
+    }
+  }, [headerFooterEditing])
+
   // Unified dismissal: a press anywhere outside the open panel closes it (plus
   // window blur / shell chrome presses). The [data-rb-panel] element exists in
   // the DOM only while a dropdown is open, and its parent element is the wrap

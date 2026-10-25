@@ -220,7 +220,14 @@ export function HeaderFooterArea({
               : '')
       }
       onDoubleClick={() => {
-        if (!readOnly && !editing) setEditing(true)
+        if (!readOnly && !editing) {
+          // Notify the shell in the same user gesture.  The effect below keeps
+          // the notification correct for keyboard/variant changes, but waiting
+          // for that effect here leaves the Ribbon on Home for one render and
+          // makes the contextual tab appear to be unresponsive.
+          onEditingChange?.(true)
+          setEditing(true)
+        }
       }}
     >
       {images && images.some((im) => !im.floating) && (
