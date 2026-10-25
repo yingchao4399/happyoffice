@@ -769,11 +769,17 @@ export function App() {
     return raw?.filter((img) => !img.floating)
   }
 
-  const commitHf = (kind: 'header' | 'footer', next: HeaderFooter, viewOverride?: HfView) => {
+  const commitHf = (
+    kind: 'header' | 'footer',
+    next: HeaderFooter,
+    viewOverride?: HfView,
+    sectionIndexOverride?: number,
+  ) => {
     const view = viewOverride ?? (kind === 'header' ? headerAreaView : footerAreaView)
+    const sectionIndex = sectionIndexOverride ?? hfSectionClamped
     // multi-section and not the final one: use the per-section edit channel (that section becomes its own part; earlier sections are unaffected)
-    if (view === 'default' && multiHf && hfSectionClamped < sections.length - 1) {
-      const sec = sections[hfSectionClamped]
+    if (view === 'default' && multiHf && sectionIndex < sections.length - 1) {
+      const sec = sections[sectionIndex]
       setSectionHfEdits((m) => ({ ...m, [`${sec.lastBlockIndex}:${kind}`]: next }))
       return
     }
@@ -3457,7 +3463,7 @@ export function App() {
           const pageHfOf = (
             pageIdx: number,
             kind: 'header' | 'footer',
-          ): { value: HeaderFooter | null; images?: HfImage[]; floats: HfImage[] } => {
+          ): { value: HeaderFooter | null; images?: HfImage[]; floats: HfImage[]; view: HfView; sectionIndex: number } => {
             const pageNo = nums[pageIdx]
             const split = (imgs?: HfImage[] | null) => ({
               images: imgs?.filter((img) => !img.floating),
@@ -3471,17 +3477,17 @@ export function App() {
             if (!secList || secList.length <= 1) {
               if (titlePg && pageIdx === 0) {
                 return kind === 'header'
-                  ? { value: hfVariants.headerFirst, ...split(parsed.headerFirst?.images) }
-                  : { value: hfVariants.footerFirst, ...split(parsed.footerFirst?.images) }
+                  ? { value: hfVariants.headerFirst, ...split(parsed.headerFirst?.images), view: 'first', sectionIndex: 0 }
+                  : { value: hfVariants.footerFirst, ...split(parsed.footerFirst?.images), view: 'first', sectionIndex: 0 }
               }
               if (evenOddHf && pageNo % 2 === 0) {
                 return kind === 'header'
-                  ? { value: hfVariants.headerEven, ...split(parsed.headerEven?.images) }
-                  : { value: hfVariants.footerEven, ...split(parsed.footerEven?.images) }
+                  ? { value: hfVariants.headerEven, ...split(parsed.headerEven?.images), view: 'even', sectionIndex: 0 }
+                  : { value: hfVariants.footerEven, ...split(parsed.footerEven?.images), view: 'even', sectionIndex: 0 }
               }
               return kind === 'header'
-                ? { value: header, ...split(parsed.headerImages) }
-                : { value: footer, ...split(parsed.footerImages) }
+                ? { value: header, ...split(parsed.headerImages), view: 'default', sectionIndex: 0 }
+                : { value: footer, ...split(parsed.footerImages), view: 'default', sectionIndex: 0 }
             }
             const pageSlice = slices[pageIdx]
             const sec = secList[Math.min(pageSlice.section, secList.length - 1)]
@@ -3492,6 +3498,8 @@ export function App() {
             return {
               value: ov ?? hfFromPart(rId ? parsed.hfParts?.[rId] : null),
               ...split(rId ? parsed.hfParts?.[rId]?.images : undefined),
+              view: variant,
+              sectionIndex: pageSlice.section,
             }
           }
           /** page geometry a page's floating header images position against */
@@ -3646,7 +3654,10 @@ export function App() {
             const gapFooter = pageHfOf(k, 'footer')
             const gapHeader = pageHfOf(k + 1, 'header')
             const hfEls: HTMLElement[] = []
-            if (hfHasVisibleContent(gapFooter.value, gapFooter.images)) {
+            // Keep an empty, positioned hit target in edit mode as Word/WPS do:
+            // a page with no existing footer is still double-clickable and can
+            // create the linked footer for that page/variant.
+            if (!readMode && !isProtected || hfHasVisibleContent(gapFooter.value, gapFooter.images)) {
               const box = sectionPageBox(prevSec)
               const el = makeGapHfEl({
                 kind: 'footer',
@@ -3654,6 +3665,9 @@ export function App() {
                 images: gapFooter.images,
                 pageNo: pageNoTextOf(k),
                 pageTotal: visiblePages,
+                pageIndex: k,
+                sectionIndex: gapFooter.sectionIndex,
+                view: gapFooter.view,
                 geom: { ...hfStripGeom(prevSec), stripLeft: gapStripLeft(prevSec, box) },
               })
               el.style.top = 'auto'
@@ -3667,7 +3681,7 @@ export function App() {
               )
               hfEls.push(el)
             }
-            if (hfHasVisibleContent(gapHeader.value, gapHeader.images)) {
+            if (!readMode && !isProtected || hfHasVisibleContent(gapHeader.value, gapHeader.images)) {
               const box = sectionPageBox(nextSec)
               // the strip cannot start below the body top: a top margin under headerDist pins it higher
               const headerStripTop = Math.min(box.headerDist, metrics.marginTop)
@@ -3677,6 +3691,9 @@ export function App() {
                 images: gapHeader.images,
                 pageNo: pageNoTextOf(k + 1),
                 pageTotal: visiblePages,
+                pageIndex: k + 1,
+                sectionIndex: gapHeader.sectionIndex,
+                view: gapHeader.view,
                 geom: {
                   ...hfStripGeom(nextSec),
                   headerStripTop,
@@ -5086,13 +5103,74 @@ export function App() {
 
   const onDocDoubleClick = useCallback((e: ReactMouseEvent) => {
     const target = e.target as HTMLElement
+    const gap = target.closest('.page-gap-hf') as (HTMLElement & {
+      __fridayHf?: {
+        kind: 'header' | 'footer'
+        value: HeaderFooter
+        view: HfView
+        sectionIndex?: number
+      }
+    }) | null
+    if (gap && !readMode && !isProtected) {
+      const meta = gap.__fridayHf
+      if (!meta || gap.dataset.hfEditing === '1') return
+      e.preventDefault()
+      e.stopPropagation()
+      // The contextual ribbon follows the exact page variant that was
+      // double-clicked (first/odd/even/default), just like Word/WPS.
+      setHfView(meta.view)
+      gap.dataset.hfEditing = '1'
+      gap.classList.add('page-hf-editing')
+      gap.dataset.hfLabel = meta.kind === 'header' ? '页眉' : '页脚'
+      const surface = document.createElement('div')
+      surface.className = 'page-hf-edit-surface'
+      surface.contentEditable = 'true'
+      surface.spellcheck = spellcheckEnabled()
+      surface.innerText = hfEditText(meta.value)
+      gap.replaceChildren(surface)
+      setHeaderFooterEditing(true)
+      const initial = surface.innerText
+      let done = false
+      const finish = (cancel = false) => {
+        if (done) return
+        done = true
+        surface.removeEventListener('blur', onBlur)
+        surface.removeEventListener('keydown', onKeyDown)
+        if (!cancel && surface.innerText !== initial) {
+          commitHf(meta.kind, applyHfText(meta.value, surface.innerText), meta.view, meta.sectionIndex)
+        }
+        gap.dataset.hfEditing = '0'
+        gap.classList.remove('page-hf-editing')
+        setHeaderFooterEditing(false)
+      }
+      const onBlur = () => finish(false)
+      const onKeyDown = (keyEvent: KeyboardEvent) => {
+        if (keyEvent.key === 'Escape') {
+          keyEvent.preventDefault()
+          keyEvent.stopPropagation()
+          finish(true)
+        }
+      }
+      surface.addEventListener('blur', onBlur)
+      surface.addEventListener('keydown', onKeyDown)
+      surface.focus()
+      const selection = window.getSelection()
+      if (selection) {
+        selection.removeAllRanges()
+        const range = document.createRange()
+        range.selectNodeContents(surface)
+        range.collapse(false)
+        selection.addRange(range)
+      }
+      return
+    }
     if (!target.closest('.doc-page')) return
     // behind-text pictures sit under the text layer; same fall-through as the right-click path
     const img =
       target.closest('img') ?? findFloatImageAt(e.clientX, e.clientY)?.querySelector('img')
     const src = img?.getAttribute('src')
     if (src) setViewImage(src)
-  }, [])
+  }, [readMode, isProtected, commitHf, setHfView])
 
   // genoffice CLI (`open --block`, `selection`): the shell evaluates this hook
   useEffect(() => {

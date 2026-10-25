@@ -1077,6 +1077,10 @@ export function makeGapHfEl(opts: {
   pageNo: number | string
   /** total page count shown for the NUMPAGES marker */
   pageTotal: number
+  /** page/variant metadata used by the interactive canvas editor */
+  pageIndex?: number
+  sectionIndex?: number
+  view?: 'default' | 'first' | 'even'
   /** page geometry: floating textboxes render at their anchor position (absent: stacked) */
   geom?: HfStripGeom
 }): HTMLElement {
@@ -1091,6 +1095,22 @@ export function makeGapHfEl(opts: {
   const wrap = document.createElement('div')
   wrap.className = `page-hf page-hf-${kind} page-gap-hf`
   wrap.contentEditable = 'false'
+  wrap.dataset.hfKind = kind
+  wrap.dataset.hfLabel = kind === 'header' ? '页眉' : '页脚'
+  if (opts.pageIndex !== undefined) wrap.dataset.hfPageIndex = String(opts.pageIndex)
+  if (opts.sectionIndex !== undefined) wrap.dataset.hfSectionIndex = String(opts.sectionIndex)
+  if (opts.view) wrap.dataset.hfView = opts.view
+  // Keep the complete logical value on the widget. The visual copy is rebuilt
+  // by pagination, while the double-click editor needs the original PAGE /
+  // NUMPAGES markers and paragraph metadata to commit through the normal save
+  // path. This property is intentionally non-serialised DOM state.
+  ;(wrap as HTMLElement & { __fridayHf?: unknown }).__fridayHf = {
+    kind,
+    value,
+    pageIndex: opts.pageIndex,
+    sectionIndex: opts.sectionIndex,
+    view: opts.view ?? 'default',
+  }
   // Word sizes strip lines by their runs — the strip base is only the fallback
   // for runs without w:sz. When every text run declares a size, the strip font
   // (the em behind every strut/empty-line line-height) takes it, shrink-only

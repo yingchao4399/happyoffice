@@ -2767,6 +2767,7 @@ th.cell-rev-del {
 }
 
 .page-hf-editing {
+  position: relative;
   outline: 2px solid var(--word-blue);
   outline-offset: 2px;
   border-radius: 2px;
@@ -2774,6 +2775,26 @@ th.cell-rev-del {
   color: var(--docs-paper-ink);
   overflow: visible;
   cursor: text;
+}
+
+/* Word/WPS-style zone marker: the label is attached to the active page zone,
+   rather than a global "different first page" hint. */
+.page-hf-editing::before {
+  content: attr(data-hf-label);
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translateY(-50%);
+  z-index: 3;
+  padding: 2px 7px;
+  border: 1px solid var(--docs-paper-hf-line);
+  border-radius: 2px;
+  background: var(--docs-paper);
+  color: var(--docs-paper-ink);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* editing surface: a separate element receives input and clears on unmount (no leftover input text nodes) */
@@ -2844,11 +2865,11 @@ th.cell-rev-del {
   padding-bottom: max(0px, calc(var(--header-dist, 48px) - 24px));
 }
 
-.page-wrap:has(.page-hf-header:hover) .hf-chips-idle,
-.page-wrap:has(.page-hf-header.page-hf-editing) .hf-chips-idle,
-.hf-variant-chips.hf-chips-idle:hover {
-  opacity: 1;
-  pointer-events: auto;
+/* Variant controls belong to the ribbon/settings surface. Moving the pointer
+   over a page header must never show a misleading “Different first page” chip. */
+.hf-variant-chips.hf-chips-idle {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* navigation pane */
@@ -3873,10 +3894,12 @@ th.cell-rev-del {
   height: 11px;
 }
 
-/* header/footer strips inside canvas page gaps: display-only copies of each page's
-   variant (edit via the document top/bottom areas or the pagination preview) */
+/* Header/footer strips inside canvas page gaps are real page-local edit targets.
+   The content is rebuilt from the shared section model, but the widget itself
+   is interactive so every page behaves like Word/WPS. */
 .page-gap-hf {
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: text;
 }
 
 /* floating textbox in a header/footer part: drawn at its anchor's page position

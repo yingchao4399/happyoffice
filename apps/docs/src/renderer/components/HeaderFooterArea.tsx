@@ -219,6 +219,7 @@ export function HeaderFooterArea({
                 : t('appHfPageNumHint').replace('#', PAGE_TOKEN)
               : '')
       }
+      data-hf-label={kind === 'header' ? '页眉' : '页脚'}
       onDoubleClick={() => {
         if (!readOnly && !editing) {
           // Notify the shell in the same user gesture.  The effect below keeps
