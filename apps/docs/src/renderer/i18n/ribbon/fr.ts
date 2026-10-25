@@ -278,6 +278,12 @@ export const fr = {
   ribbonDiffOddEvenTip:
     'Utiliser des en-têtes et pieds de page différents sur les pages paires et impaires',
   ribbonGroupHeaderFooter: 'En-tête et pied de page',
+  ribbonTabHeaderFooter: 'Header & Footer',
+  ribbonGroupInsert: 'Insert',
+  ribbonGroupOptions: 'Options',
+  ribbonHeaderDistance: 'Header from top (cm)',
+  ribbonFooterDistance: 'Footer from bottom (cm)',
+  ribbonCloseHeaderFooter: 'Close Header & Footer',
   ribbonSymbol: 'Symbole',
   ribbonSymbolTip: 'Insérer un symbole',
   ribbonEquation: 'Équation',

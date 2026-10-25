@@ -278,6 +278,12 @@ export const de = {
   ribbonDiffOddEvenTip:
     'Auf geraden und ungeraden Seiten unterschiedliche Kopf- und Fußzeilen verwenden',
   ribbonGroupHeaderFooter: 'Kopf- und Fußzeile',
+  ribbonTabHeaderFooter: 'Header & Footer',
+  ribbonGroupInsert: 'Insert',
+  ribbonGroupOptions: 'Options',
+  ribbonHeaderDistance: 'Header from top (cm)',
+  ribbonFooterDistance: 'Footer from bottom (cm)',
+  ribbonCloseHeaderFooter: 'Close Header & Footer',
   ribbonSymbol: 'Symbol',
   ribbonSymbolTip: 'Symbol einfügen',
   ribbonEquation: 'Formel',
