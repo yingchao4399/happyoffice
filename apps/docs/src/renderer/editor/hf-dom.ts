@@ -602,13 +602,19 @@ export function hfWithoutPageMarks(value: HeaderFooter): HeaderFooter {
   }
   if (!value.paras?.length) return { ...value, text: strip(value.text), pageNumber: false }
   const paras = value.paras
+    .filter(p => {
+      if (p.cells || !paraHasPageMark(p)) return true
+      const literal = p.runs.map(r => r.text).join('').replaceAll(PAGE_MARK,'').replaceAll(TOTAL_PAGES_MARK,'')
+      const numberOnly = p.runs.every(r => !r.instrField || /^(PAGE|NUMPAGES)$/i.test(r.instrField)) && /^(?:\s|第|页|共|Page|of|—|-|\/)*$/i.test(literal)
+      return !numberOnly
+    })
     .map((p) =>
       p.cells
         ? p
         : { ...p, runs: p.runs.map((r) => ({ ...r, text: strip(r.text) })).filter((r) => r.text) },
     )
     // dedicated page-number paragraphs go away entirely; table rows and user-typed blank lines stay
-    .filter((p, i) => p.cells != null || p.runs.length > 0 || value.paras![i].runs.length === 0)
+    .filter(p => p.cells != null || p.runs.length > 0 || !p.runs.some(r => r.text.includes(PAGE_MARK)))
   const text = paras
     .map((p) =>
       [...p.runs, ...(p.cells?.flatMap((c) => c.paras.flat()) ?? [])].map((r) => r.text).join(''),
@@ -622,7 +628,7 @@ export function hfHasVisibleContent(
   value: HeaderFooter | null | undefined,
   images?: HfImage[],
 ): boolean {
-  if (images?.length) return true
+  if (!value?.replaceContent && images?.length) return true
   if (!value) return false
   return Boolean(
     value.text ||
@@ -672,7 +678,7 @@ let mountedCssMemo: { text: string; hash: string } | null = null
 function mountedDocCssSig(): string {
   const text = Array.from(document.querySelectorAll('style[data-doc-css]'))
     .map((s) => s.textContent ?? '')
-    .join(' ')
+    .join('\0')
   if (mountedCssMemo?.text === text) return mountedCssMemo.hash
   let h = 5381
   for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0
@@ -701,6 +707,7 @@ export function hfReservedHeightPx(
   images?: HfImage[] | null,
   geom?: { marginTopPx: number; headerDistPx: number },
 ): number {
+  if (value?.replaceContent) images = undefined
   const est = estimateHfHeight(value, contentWidthPx, images, geom)
   const inline = (images ?? []).filter((img) => !img.floating)
   if (!hfHasVisibleContent(value, inline) || contentWidthPx <= 0) return est
@@ -1084,7 +1091,8 @@ export function makeGapHfEl(opts: {
   /** page geometry: floating textboxes render at their anchor position (absent: stacked) */
   geom?: HfStripGeom
 }): HTMLElement {
-  const { kind, value, images, pageNo, pageTotal, geom } = opts
+  const { kind, value, pageNo, pageTotal, geom } = opts
+  const images = value?.replaceContent ? undefined : opts.images
   const legacyHash = hfUsesLegacyHash(value)
   const display = (text: string) => {
     const substituted = text

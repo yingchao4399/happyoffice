@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import {
   PAGE_MARK,
   TOTAL_PAGES_MARK,
+  type HeaderFooter,
   type HfImage,
   type HfParagraph,
   type Run,
@@ -39,11 +40,7 @@ import { textColorValue } from '../editor/text-color'
 import { textOutlineCssValue } from '../editor/text-outline'
 import { cssRunFontFamily, fontKerningCss, runLetterSpacingCss } from '../line-metrics'
 
-export interface HfValue {
-  text: string
-  pageNumber?: boolean
-  paras?: HfParagraph[]
-}
+export type HfValue = HeaderFooter
 
 function runStyle(run: Run): React.CSSProperties {
   const style: React.CSSProperties = {}
@@ -124,6 +121,7 @@ export function HeaderFooterArea({
   pageTotal,
   style,
   boxGeom,
+  editing: controlledEditing,
 }: {
   kind: 'header' | 'footer'
   value: HfValue
@@ -141,9 +139,18 @@ export function HeaderFooterArea({
   style?: React.CSSProperties
   /** page geometry: floating textboxes render at their anchor position (absent: stacked) */
   boxGeom?: HfStripGeom
+  /** 页编辑模式由文档管理；点 Ribbon、菜单或设置框时不会退出。 */
+  editing?: boolean
 }) {
   const { t } = useI18n()
-  const [editing, setEditing] = useState(false)
+  const [localEditing, setLocalEditing] = useState(false)
+  const editing = controlledEditing ?? localEditing
+  const setEditing = (next: boolean) => {
+    if (controlledEditing === undefined) setLocalEditing(next)
+    onEditingChange?.(next)
+  }
+  const valueRef = useRef(value)
+  valueRef.current = value
   const editRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef(false)
   const initialTextRef = useRef('')
@@ -170,13 +177,68 @@ export function HeaderFooterArea({
   }, [editing])
 
   useEffect(() => {
+    if (controlledEditing !== undefined) return
     onEditingChange?.(editing)
     return () => onEditingChange?.(false)
-  }, [editing, onEditingChange])
+  }, [editing, onEditingChange, controlledEditing])
+
+  // 工具栏修改字段、页码、横线后同步当前编辑面；自己输入时不重置光标。
+  useEffect(() => {
+    const el = editRef.current
+    if (!editing || !el) return
+    const text = hfEditText(value)
+    if (el.innerText === text) return
+    el.innerText = text
+    initialTextRef.current = text
+    if (el.dataset.hfPendingCaret !== undefined) {
+      const offset = Math.min(text.length, Number(el.dataset.hfPendingCaret))
+      delete el.dataset.hfPendingCaret
+      el.focus({ preventScroll: true })
+      const selection = window.getSelection(), range = document.createRange()
+      range.selectNodeContents(el); range.collapse(false)
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+        acceptNode: node => node.nodeType === Node.TEXT_NODE || node.nodeName === 'BR' ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+      })
+      let remaining = offset, node: Node | null
+      while ((node = walker.nextNode())) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          if (remaining <= (node.textContent?.length ?? 0)) { range.setStart(node,remaining); range.collapse(true); break }
+          remaining -= node.textContent?.length ?? 0
+        } else {
+          if (remaining === 0) { range.setStartBefore(node); range.collapse(true); break }
+          remaining--
+        }
+      }
+      selection?.removeAllRanges(); selection?.addRange(range)
+      el.dataset.hfStart = el.dataset.hfEnd = String(offset)
+    }
+  }, [value, editing])
+
+  useEffect(() => {
+    if (!editing) return
+    const remember = () => {
+      const el = editRef.current,selection = window.getSelection()
+      if (!el || !selection?.rangeCount) return
+      const range = selection.getRangeAt(0)
+      if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return
+      const offset = (container: Node,index: number) => {
+        const before = document.createRange(); before.selectNodeContents(el); before.setEnd(container,index)
+        const measure = document.createElement('div')
+        measure.style.cssText = 'position:fixed;left:-100000px;top:0;white-space:pre-wrap;pointer-events:none'
+        measure.append(before.cloneContents()); document.body.append(measure)
+        const length = measure.innerText.length; measure.remove(); return length
+      }
+      el.dataset.hfStart = String(offset(range.startContainer,range.startOffset))
+      el.dataset.hfEnd = String(offset(range.endContainer,range.endOffset))
+    }
+    document.addEventListener('selectionchange',remember)
+    remember()
+    return () => document.removeEventListener('selectionchange',remember)
+  },[editing])
 
   const commit = () => {
     const el = editRef.current
-    setEditing(false)
+    if (controlledEditing === undefined) setEditing(false)
     if (!el) return
     if (cancelRef.current) {
       cancelRef.current = false
@@ -219,19 +281,18 @@ export function HeaderFooterArea({
                 : t('appHfPageNumHint').replace('#', PAGE_TOKEN)
               : '')
       }
-      data-hf-label={kind === 'header' ? '页眉' : '页脚'}
+      data-hf-label={t(kind === 'header' ? 'ribbonHeader' : 'ribbonFooter')}
       onDoubleClick={() => {
         if (!readOnly && !editing) {
           // Notify the shell in the same user gesture.  The effect below keeps
           // the notification correct for keyboard/variant changes, but waiting
           // for that effect here leaves the Ribbon on Home for one render and
           // makes the contextual tab appear to be unresponsive.
-          onEditingChange?.(true)
           setEditing(true)
         }
       }}
     >
-      {images && images.some((im) => !im.floating) && (
+      {!value.replaceContent && images && images.some((im) => !im.floating) && (
         <div
           className="page-hf-images"
           contentEditable={false}
@@ -266,13 +327,22 @@ export function HeaderFooterArea({
           contentEditable
           spellCheck={spellcheckEnabled()}
           suppressContentEditableWarning
+          style={paras.find(p => !p.cells) ? paraStyle(paras.find(p => !p.cells)!) : undefined}
+          onInput={() => {
+            const el = editRef.current
+            if (!el || controlledEditing === undefined) return
+            const next = applyHfText(valueRef.current, el.innerText)
+            valueRef.current = next
+            initialTextRef.current = el.innerText
+            onCommit(next)
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.preventDefault()
               e.stopPropagation()
-              cancelRef.current = true
-              ;(e.target as HTMLElement).blur()
+              if (controlledEditing === undefined) cancelRef.current = true
+              setEditing(false)
             }
           }}
         />

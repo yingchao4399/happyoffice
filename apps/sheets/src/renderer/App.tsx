@@ -4452,6 +4452,21 @@ export function App(): React.JSX.Element {
         aiBusy={aiBusy}
         chat={chat}
         historicChat={historicChat}
+        loadHistoryEntries={async () => {
+          const ids = chatRefIdsRef.current
+          const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
+          if (!ids || !api) return [...historicChat, ...chat]
+          const messages = await api.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
+          return messages.map((message) => ({
+            role: message.role,
+            text: message.text,
+            tools: message.tools?.map((tool) => ({
+              name: tool.name,
+              summary: tool.summary,
+              ...(typeof tool.isError === 'boolean' ? { isError: tool.isError } : {}),
+            })) ?? [],
+          }))
+        }}
         attachments={attachments}
         attachNotice={attachNotice}
         onPickAttachments={() => void handlePickAttachments()}

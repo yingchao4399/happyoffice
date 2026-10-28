@@ -157,6 +157,9 @@ export function AiPanel({
 }): ReactElement {
   const { lang, t } = useI18n()
   const [chat, setChat] = useState<ChatEntry[]>([])
+  /** Persisted transcript shown by the history button, kept when New chat clears the live view. */
+  const [history, setHistory] = useState<ChatEntry[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
   /** a streamed write stopped early: the draft stays in the document until the user keeps or discards it */
   const [activePartial, setActivePartial] = useState<{ blocks: number } | null>(null)
   const partialResolverRef = useRef<((keep: boolean) => void) | null>(null)
@@ -248,6 +251,15 @@ export function AiPanel({
     tools?: ToolActivity[],
     scope?: AiScopeQuoteData,
   ) => {
+    setHistory((prev) => [
+      ...prev,
+      {
+        role,
+        text,
+        ...(tools && tools.length > 0 ? { tools } : {}),
+        ...(scope ? { scope } : {}),
+      },
+    ])
     const ids = chatIdsRef.current
     if (!window.projectApi) return
     if (!ids) {
@@ -494,23 +506,25 @@ export function AiPanel({
       })
       .then((msgs) => {
         if (msgs.length === 0) return
+        const restored = msgs.map((m) => ({
+          role: m.role,
+          text: m.text,
+          tools: m.tools?.map((tool) => ({
+            name: tool.name,
+            summary: tool.summary,
+            isError: tool.isError,
+            output: tool.output ? tool.output.slice(0, TOOL_OUTPUT_MAX_CHARS) : undefined,
+          })),
+          ...(m.scope ? { scope: m.scope } : {}),
+        }))
+        setHistory(restored)
         // the user may have sent a message while history was loading — never
         // replace a live transcript (and don't clobber the loop context)
         let applied = false
         setChat((prev) => {
           if (prev.length > 0) return prev
           applied = true
-          return msgs.map((m) => ({
-            role: m.role,
-            text: m.text,
-            tools: m.tools?.map((tool) => ({
-              name: tool.name,
-              summary: tool.summary,
-              isError: tool.isError,
-              output: tool.output ? tool.output.slice(0, TOOL_OUTPUT_MAX_CHARS) : undefined,
-            })),
-            ...(m.scope ? { scope: m.scope } : {}),
-          }))
+          return restored
         })
         if (applied && !loopRef.current?.busy) {
           loopRef.current?.restore(msgs.map((m) => ({ role: m.role, text: m.text })))
@@ -775,6 +789,15 @@ export function AiPanel({
             lang={lang}
             onMove={(side) => window.markdownApi.setAiPanelPrefs({ side })}
           />
+          <button
+            className={`ai-header-btn${historyOpen ? ' active' : ''}`}
+            onClick={() => setHistoryOpen((open) => !open)}
+            data-tip={t('aiHistory')}
+            aria-label={t('aiHistory')}
+            aria-expanded={historyOpen}
+          >
+            <IconHistory />
+          </button>
           {chat.length > 0 && (
             <button
               className="ai-header-btn"
@@ -801,6 +824,35 @@ export function AiPanel({
           </button>
         </div>
       </header>
+
+      {historyOpen && (
+        <section className="ai-history-drawer" aria-label={t('aiHistory')}>
+          <div className="ai-history-drawer-header">
+            <span>{t('aiHistory')}</span>
+            <button
+              className="ai-history-close"
+              onClick={() => setHistoryOpen(false)}
+              aria-label={t('aiCollapsePanel')}
+            >
+              ×
+            </button>
+          </div>
+          {history.length === 0 ? (
+            <div className="ai-history-empty">{t('aiHistoryEmpty')}</div>
+          ) : (
+            <div className="ai-history-list">
+              {history.map((entry, index) => (
+                <div key={`${index}-${entry.role}`} className={`ai-history-entry ${entry.role}`}>
+                  <span className="ai-history-role">
+                    {entry.role === 'user' ? t('aiHistoryYou') : t('aiHistoryAssistant')}
+                  </span>
+                  <div className="ai-history-text">{entry.text || '…'}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="ai-chat" ref={chatRef} onScroll={onChatScroll}>
         {chat.length === 0 && (
@@ -1208,6 +1260,15 @@ function IconNewChat(): ReactElement {
         strokeLinejoin="round"
       />
       <path d="M12.2 9.4v4M10.2 11.4h4" />
+    </Svg>
+  )
+}
+
+function IconHistory(): ReactElement {
+  return (
+    <Svg>
+      <path d="M3 5.5h10M3 8h7M3 10.5h8" />
+      <path d="M2.5 3.5h11v9h-7l-3 2v-2h-1z" strokeLinejoin="round" />
     </Svg>
   )
 }

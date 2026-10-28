@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { rendererUrl, resolveRendererFile } from '../src/renderer-scheme'
 
@@ -17,20 +18,21 @@ describe('rendererUrl', () => {
 })
 
 describe('resolveRendererFile', () => {
-  const roots = new Map([['sheets', '/out/sheets/renderer']])
+  const root = resolve('/out/sheets/renderer')
+  const roots = new Map([['sheets', root]])
 
   it('maps the path under the host root', () => {
     expect(resolveRendererFile(roots, 'genoffice-app://sheets/index.html?mode=tab')).toBe(
-      '/out/sheets/renderer/index.html',
+      resolve(root, 'index.html'),
     )
     expect(resolveRendererFile(roots, 'genoffice-app://sheets/assets/a%20b.js')).toBe(
-      '/out/sheets/renderer/assets/a b.js',
+      resolve(root, 'assets/a b.js'),
     )
   })
 
   it('keeps dot segments inside the root and rejects unknown hosts and unparsable URLs', () => {
     expect(resolveRendererFile(roots, 'genoffice-app://sheets/../../etc/passwd')).toBe(
-      '/out/sheets/renderer/etc/passwd',
+      resolve(root, 'etc/passwd'),
     )
     expect(resolveRendererFile(roots, 'genoffice-app://docs/index.html')).toBeNull()
     expect(resolveRendererFile(roots, 'not a url')).toBeNull()

@@ -1,0 +1,111 @@
+.ai-history-control {
+  position: relative;
+  display: inline-flex;
+}
+
+.ai-history-button.active {
+  color: var(--ai-accent, #0f7fff);
+  background: var(--ai-surface-hover, rgb(15 127 255 / 8%));
+}
+
+.ai-history-popover {
+  position: absolute;
+  z-index: 1200;
+  top: calc(100% + 7px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(520px, 68vh);
+  overflow: hidden;
+  border: 1px solid var(--border-color, #dfe3e8);
+  border-radius: 12px;
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary, #252a31);
+  box-shadow: 0 14px 38px rgb(20 29 40 / 18%);
+  text-align: start;
+}
+
+.ai-history-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  font-size: 13px;
+}
+
+.ai-history-close {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 19px;
+  cursor: pointer;
+}
+
+.ai-history-close:hover {
+  background: var(--bg-tertiary, #f2f4f7);
+}
+
+.ai-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.ai-history-entry {
+  max-width: 94%;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--bg-tertiary, #f3f5f7);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ai-history-entry.user {
+  align-self: flex-end;
+  background: var(--ai-surface-hover, rgb(15 127 255 / 9%));
+}
+
+.ai-history-role {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-secondary, #68717d);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.ai-history-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.ai-history-tools span {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgb(127 138 153 / 13%);
+  color: var(--text-secondary, #68717d);
+  font-size: 10px;
+}
+
+.ai-history-tools .is-error {
+  color: #b42318;
+  background: rgb(217 45 32 / 10%);
+}
+
+.ai-history-empty {
+  padding: 28px 12px;
+  color: var(--text-secondary, #7b8490);
+  font-size: 12px;
+  text-align: center;
+}

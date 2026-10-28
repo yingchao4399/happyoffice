@@ -5807,16 +5807,8 @@ function hfContentFromXml(
         hasPageNumber = true
         return emit(`<w:r>${rPr}<w:t>${PAGE_MARK}</w:t></w:r>`)
       }
-      const cached =
-        /<w:fldChar[^>]*w:fldCharType="separate"[^>]*?(?:\/>|>\s*<\/w:fldChar>)([\s\S]*)$/.exec(
-          span,
-        )?.[1]
-      // complete result runs between separate and end (partial run fragments at the edges drop out)
-      return emit(
-        (cached?.match(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g) ?? [])
-          .filter((run) => run.includes('<w:t'))
-          .join(''),
-      )
+      // 非页码域交给标准字段解析器，保留指令与缓存结果，编辑保存后仍是域。
+      return span
     },
   )
   // <w:fldSimple w:instr=" PAGE "> single-element field form
@@ -5829,7 +5821,7 @@ function hfContentFromXml(
         hasPageNumber = true
         return `<w:r>${rPr}<w:t>${PAGE_MARK}</w:t></w:r>`
       }
-      return inner ?? whole
+      return whole
     },
   )
   // legacy <w:pgNum/> run element (pre-field page number) renders as a PAGE field
@@ -5842,9 +5834,9 @@ function hfContentFromXml(
     hasPageNumber,
     watermark: kind === 'header' ? readWatermarkText(xml) : null,
     watermarkPicture: kind === 'header' ? readPictureWatermark(xml) : null,
-    // strip leftover field chars so the page marker parses as plain text
+    // 页码已转为显示标记；其他字段保留完整指令供编辑保存。
     paras: hfParagraphs(
-      cleaned.replace(/<w:fldChar[^>]*?(?:\/>|>\s*<\/w:fldChar>)/g, ''),
+      cleaned,
       theme,
       styles,
       tableMedia,

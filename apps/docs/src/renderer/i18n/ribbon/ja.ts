@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const ja = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: '{label}の文字を入力',
+
   ribbonAiCreditNote: 'AI を呼び出し、クレジットを消費します',
   ribbonAiRewriteConfirm:
     'この操作は AI を呼び出します。クレジットを消費し、内容全体が書き換えられる可能性があります。続行しますか？（確認後は再表示されません）',
@@ -270,7 +284,6 @@ export const ja = {
   ribbonHeaderTip: 'ヘッダーを編集',
   ribbonFooter: 'フッター',
   ribbonFooterTip: 'フッターを編集',
-  ribbonHfPlaceholder: '{label}の文字を入力',
   ribbonPageNumber: 'ページ番号',
   ribbonPnTopLeft: '上部左側',
   ribbonPnTopCenter: '上部中央',

@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const de = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: '{label}-Text eingeben',
+
   ribbonAiCreditNote: 'Ruft KI auf und verbraucht Guthaben',
   ribbonAiRewriteConfirm:
     'Diese Aktion ruft die KI auf: Sie verbraucht Guthaben und kann den gesamten Inhalt umschreiben. Fortfahren? (Sie werden nicht erneut gefragt.)',
@@ -262,7 +276,6 @@ export const de = {
   ribbonHeaderTip: 'Kopfzeile bearbeiten',
   ribbonFooter: 'Fußzeile',
   ribbonFooterTip: 'Fußzeile bearbeiten',
-  ribbonHfPlaceholder: '{label}-Text eingeben',
   ribbonPageNumber: 'Seitenzahl',
   ribbonPnTopLeft: 'Oben links',
   ribbonPnTopCenter: 'Oben zentriert',

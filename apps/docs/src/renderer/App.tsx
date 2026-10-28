@@ -49,6 +49,7 @@ import {
 } from './editor/paste-options'
 import { PasteOptionsChip } from './components/PasteOptionsChip'
 import {
+  readDocxPartBase64,
   BLANK_BULLET_NUM_ID,
   BLANK_ORDERED_NUM_ID,
   DEFAULT_SECTION,
@@ -87,6 +88,7 @@ import { applyResolvedPageSetup, describeSection, type AiPageSetupAccess } from 
 import { patchPendingSectPr, sectionIndexAtBlock } from './ai/pending-sections'
 import { protectedNoteMarkBlock, type AiNotesAccess } from './ai/note-ops'
 import { applyHfText, hfEditText } from './editor/hf-text'
+import type { HfDocumentInfo } from './editor/hf-presets'
 import { textColorValue } from './editor/text-color'
 import { textOutlineCssValue } from './editor/text-outline'
 import { AiAskPopover } from './components/AiAskPopover'
@@ -96,6 +98,7 @@ import { asianCharCount, countWords, nonAsianWordCount } from './word-count'
 import { CommentsPanel } from './components/CommentsPanel'
 import { EquationModal } from './components/EquationModal'
 import { HeaderFooterArea } from './components/HeaderFooterArea'
+import { CanvasHeaderFooters, type CanvasHfPage, type HfEditingTarget } from './components/CanvasHeaderFooters'
 import { PageFootnotes, PageEndnotes } from './components/PageNoteAreas'
 import { noteMarkText, type NoteKind } from './note-format'
 import { PaginationPreview } from './components/PaginationPreview'
@@ -173,6 +176,7 @@ import {
   syncFloatShifts,
   syncPageBorders,
   syncPageSheets,
+  pageFramesFromGaps,
   clampCellBoxTops,
   clampCellImageTops,
   pageBorderStyleOf,
@@ -664,6 +668,28 @@ export function App() {
   const [footer, setFooter] = useState<HeaderFooter | null>(null)
   const [footerDirty, setFooterDirty] = useState(false)
   const [headerFooterEditing, setHeaderFooterEditing] = useState(false)
+  const [canvasHfPages, setCanvasHfPages] = useState<CanvasHfPage[]>([])
+  const [activeHfTarget, setActiveHfTarget] = useState<HfEditingTarget | null>(null)
+  const activeHfRef = useRef<HfEditingTarget | null>(null)
+  const activateHf = (target: HfEditingTarget) => {
+    activeHfRef.current = target
+    setActiveHfTarget(target)
+    setActiveSection(target.sectionIndex)
+    setHeaderFooterEditing(true)
+  }
+  const exitHf = () => {
+    activeHfRef.current = null
+    setActiveHfTarget(null)
+    setHeaderFooterEditing(false)
+  }
+  useEffect(() => {
+    const active = activeHfRef.current
+    if (!active) return
+    const part = canvasHfPages[active.pageIndex]?.[active.kind]
+    if (part && (part.view !== active.view || part.sectionIndex !== active.sectionIndex)) {
+      activateHf({ ...active, view: part.view, sectionIndex: part.sectionIndex })
+    }
+  }, [canvasHfPages])
   const [hfVariants, setHfVariants] = useState<HfVariantsState>(EMPTY_HF_VARIANTS)
   const [hfVariantsDirty, setHfVariantsDirty] = useState<HfVariantKey[]>([])
   const [titlePg, setTitlePg] = useState(false)
@@ -694,8 +720,8 @@ export function App() {
     pendingNumbering.newDefs.length > 0 || pendingNumbering.restartNums.length > 0
   /** Header/footer edits for non-final sections (key = `${lastBlockIndex}:${kind}`), saved via SaveOptions.sectionHf */
   const [sectionHfEdits, setSectionHfEdits] = useState<Record<string, HeaderFooter>>({})
-  /** The canvas header/footer area always views/edits the first section (multi-section docs: later sections inherit its refs) */
-  const hfSectionClamped = 0
+  /** 页内编辑与 Ribbon 始终使用实际命中页所属的节。 */
+  const hfSectionClamped = activeHfTarget?.sectionIndex ?? 0
   const multiHf = sections.length > 1
   const effRefsAll = useMemo(() => effectiveHfRefs(sections), [sections])
   const effHfView: HfView =
@@ -720,14 +746,14 @@ export function App() {
   }
   /** Variant an on-canvas area shows/edits: explicit chip choice wins; at rest the header area is page 1 and the footer area the last page */
   const areaView = (kind: 'header' | 'footer'): HfView =>
-    hfViewTouched
+    activeHfTarget?.view ?? (hfViewTouched
       ? effHfView
       : restingHfAreaVariant(kind, {
           titlePg,
           evenOddHf,
           pageCount: pageInfo.total,
           ...(lastPageNo ? { lastPageNo: lastPageNo.num } : {}),
-        })
+        }))
   const headerAreaView = areaView('header')
   const footerAreaView = areaView('footer')
   const shownHeader =
@@ -749,7 +775,7 @@ export function App() {
   /** images of the part in the current view (logos etc., display-only; the save path keeps their bytes untouched) */
   const hfImagesOf = (kind: 'header' | 'footer') => {
     const parsed = doc?.parsed
-    if (!parsed) return undefined
+    if (!parsed || (kind === 'header' ? shownHeader : shownFooter)?.replaceContent) return undefined
     const raw = (() => {
       const view = kind === 'header' ? headerAreaView : footerAreaView
       if (view === 'first') {
@@ -775,12 +801,18 @@ export function App() {
     viewOverride?: HfView,
     sectionIndexOverride?: number,
   ) => {
-    const view = viewOverride ?? (kind === 'header' ? headerAreaView : footerAreaView)
-    const sectionIndex = sectionIndexOverride ?? hfSectionClamped
+    const target = activeHfRef.current
+    const view = viewOverride ?? target?.view ?? (kind === 'header' ? headerAreaView : footerAreaView)
+    const sectionIndex = sectionIndexOverride ?? target?.sectionIndex ?? hfSectionClamped
+    setCanvasHfPages(pages => pages.map(page => {
+      const part = page[kind]
+      return part.view === view && part.sectionIndex === sectionIndex
+        ? { ...page, [kind]: { ...part, value: next } } : page
+    }))
     // multi-section and not the final one: use the per-section edit channel (that section becomes its own part; earlier sections are unaffected)
-    if (view === 'default' && multiHf && sectionIndex < sections.length - 1) {
+    if (multiHf && sectionIndex < sections.length - 1) {
       const sec = sections[sectionIndex]
-      setSectionHfEdits((m) => ({ ...m, [`${sec.lastBlockIndex}:${kind}`]: next }))
+      setSectionHfEdits((m) => ({ ...m, [`${sec.lastBlockIndex}:${kind}${view === 'default' ? '' : `:${view}`}`]: next }))
       return
     }
     if (view === 'default') {
@@ -806,23 +838,33 @@ export function App() {
   }
   /** "Different first page" toggle, shared by the ribbon checkbox and the on-page chip */
   const toggleTitlePg = (on: boolean) => {
-    setTitlePg(on)
-    setTitlePgDirty(true)
+    const index = activeHfRef.current?.sectionIndex ?? activeSection
+    setSections(previous => previous.map((sec, i) => i === index ? { ...sec, titlePg: on } : sec))
+    if (index === sections.length - 1 || sections.length <= 1) {
+      setTitlePg(on)
+      setTitlePgDirty(true)
+    } else {
+      setSectionsDirty(previous => previous.includes(index) ? previous : [...previous, index])
+    }
     setHfView(on ? 'first' : 'default')
     setStatus(on ? t('appTitlePgOn') : t('appTitlePgOff'))
   }
   /** Unsaved section header/footer overrides for the pagination preview (default variant): local edits > document parts */
   const sectionHfOverride = useCallback(
-    (si: number, kind: 'header' | 'footer'): HeaderFooter | null => {
+    (si: number, kind: 'header' | 'footer', view: HfView = 'default'): HeaderFooter | null => {
       const sec = sections[si]
       if (!sec) return null
       if (si === sections.length - 1) {
+        if (view !== 'default') {
+          const key: HfVariantKey = `${kind}${view === 'first' ? 'First' : 'Even'}`
+          return hfVariantsDirty.includes(key) ? hfVariants[key] : null
+        }
         const dirty = kind === 'header' ? headerDirty : footerDirty
         return dirty ? (kind === 'header' ? header : footer) : null
       }
-      return sectionHfEdits[`${sec.lastBlockIndex}:${kind}`] ?? null
+      return sectionHfEdits[`${sec.lastBlockIndex}:${kind}${view === 'default' ? '' : `:${view}`}`] ?? null
     },
-    [sections, sectionHfEdits, header, footer, headerDirty, footerDirty],
+    [sections, sectionHfEdits, header, footer, headerDirty, footerDirty, hfVariants, hfVariantsDirty],
   )
   const [showMarks, setShowMarks] = useState(false)
   const [showRuler, setShowRuler] = useState(false)
@@ -1608,6 +1650,20 @@ export function App() {
       !writeLocked && editRestriction === 'forms' && !readMode && !docLoading
   }, [editor, writeLocked, editRestriction, readMode, docLoading])
 
+  const [hfDocumentInfo,setHfDocumentInfo] = useState<HfDocumentInfo>({})
+  useEffect(() => {
+    let canceled = false
+    setHfDocumentInfo({})
+    const bytes = doc?.parsed.internal.originalBytes
+    if (bytes) void readDocxPartBase64(bytes,'docProps/core.xml').then(data => {
+      if (!data || canceled) return
+      const xml = new DOMParser().parseFromString(new TextDecoder().decode(Uint8Array.from(atob(data),c => c.charCodeAt(0))),'application/xml')
+      const read = (name: string) => xml.getElementsByTagNameNS('*',name)[0]?.textContent ?? ''
+      setHfDocumentInfo({ title:read('title'),author:read('creator'),subject:read('subject'),keywords:read('keywords'),description:read('description') })
+    }).catch(() => { /* 缺失文档属性可由用户在插入菜单填写。 */ })
+    return () => { canceled = true }
+  },[doc?.parsed.internal.originalBytes])
+
   // window title follows the document, so the OS window list and Switch Window show file names
   useEffect(() => {
     document.title = doc ? doc.fileName : 'GenOffice Docs'
@@ -1710,7 +1766,11 @@ export function App() {
     setRecent,
     setShowAi,
     setDoc,
-    setAiPanelKey,
+    setAiPanelKey: (next) => {
+      exitHf()
+      setCanvasHfPages([])
+      setAiPanelKey(next)
+    },
     setDocCss,
     setDocLoading,
     prepareInitialLayout: (nextSection, nextComments) => {
@@ -2605,11 +2665,7 @@ export function App() {
     [section, markupExtra],
   )
 
-  // On scroller size changes (window/AI-dock/nav-pane toggles): follow with a
-  // re-fit while in fit mode, and clamp any manual zoom back down to width-fit
-  // whenever the page no longer fits horizontally — the canvas must never
-  // overflow the pane on a resize (same contract as the slides stage). A manual
-  // zoom smaller than fit is left alone.
+  // 只有“适应宽度/整页”模式随窗口重算；手动缩放保留用户比例，通过滚动查看纸张。
   useEffect(() => {
     const el = document.querySelector('.editor-scroll')
     if (!doc || !el) return
@@ -2621,24 +2677,18 @@ export function App() {
         zoomFit(lf.mode) // fit mode: follow the container in the user's chosen fit
         return
       }
-      // The overflow test uses the uncapped ratio: a manual zoom that still
-      // fits (or is smaller than fit) is the user's choice and must be kept
-      if (zoomLiveRef.current <= raw + 0.5) return
-      zoomFit('width')
     })
     ro.observe(el)
     return () => ro.disconnect()
   }, [doc, zoomFit, rawFitWidth])
 
-  // markup column appearing/disappearing changes the canvas width without a
-  // pane resize: apply the same follow/clamp rules as the ResizeObserver above
+  // 批注列改变可用宽度时同样只跟随自动适应模式，不覆盖手动比例。
   useEffect(() => {
     if (!doc) return
     const raw = rawFitWidth()
     if (raw == null) return
     const lf = lastFitRef.current
     if (lf != null && Math.abs(zoomLiveRef.current - lf.value) <= 0.5) zoomFit(lf.mode)
-    else if (zoomLiveRef.current > raw + 0.5) zoomFit('width')
   }, [doc, markupExtra, rawFitWidth, zoomFit])
 
   // Read Mode opens at 1:1 — the same page size as the Page Preview — and the
@@ -2874,6 +2924,8 @@ export function App() {
         const firstOn = liveFirst ? titlePg : s.titlePg
         const firstPart = (kind: 'header' | 'footer'): HeaderFooter | null => {
           if (liveFirst) return kind === 'header' ? hfVariants.headerFirst : hfVariants.footerFirst
+          const edited = sectionHfOverride(i, kind, 'first')
+          if (edited) return edited
           const rId = refs[i]?.[kind]?.first
           return rId ? hfFromPart(doc?.parsed.hfParts?.[rId]) : null
         }
@@ -2919,7 +2971,7 @@ export function App() {
     },
     // hfMeasureEpoch: re-measure once the doc-scoped styles have committed
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [doc, header, footer, sectionHfEdits, titlePg, hfVariants, hfMeasureEpoch],
+    [doc, header, footer, sectionHfEdits, titlePg, hfVariants, hfMeasureEpoch, sectionHfOverride],
   )
 
   // paragraphs without w:pStyle take the default paragraph style's constraints (widowControl off in Normal)
@@ -3448,6 +3500,7 @@ export function App() {
         const lineRectsOf = createLineRectsCache()
         const gapIds = new Set<string>()
         let firstPageFloats: { els: HTMLElement[]; key: string } | undefined
+        let hfPageModels: Array<Omit<CanvasHfPage, 'top' | 'left' | 'width' | 'height'>> = []
         if (viewMode === 'print' && !readMode) {
           const pmRect = pm.getBoundingClientRect()
           const pageNotes = pageFootnotesOf(blocks, slices)
@@ -3465,11 +3518,11 @@ export function App() {
             kind: 'header' | 'footer',
           ): { value: HeaderFooter | null; images?: HfImage[]; floats: HfImage[]; view: HfView; sectionIndex: number } => {
             const pageNo = nums[pageIdx]
-            const split = (imgs?: HfImage[] | null) => ({
-              images: imgs?.filter((img) => !img.floating),
+            const split = (imgs?: HfImage[] | null, value?: HeaderFooter | null) => ({
+              images: value?.replaceContent ? undefined : imgs?.filter((img) => !img.floating),
               floats: [
                 ...(kind === 'header' && pendingWatermarkImage ? [pendingWatermarkImage] : []),
-                ...(imgs?.filter(
+                ...((value?.replaceContent ? [] : imgs)?.filter(
                   (img) => img.floating && !(watermarkDirty && (img.wordArt || img.watermark)),
                 ) ?? []),
               ],
@@ -3477,27 +3530,27 @@ export function App() {
             if (!secList || secList.length <= 1) {
               if (titlePg && pageIdx === 0) {
                 return kind === 'header'
-                  ? { value: hfVariants.headerFirst, ...split(parsed.headerFirst?.images), view: 'first', sectionIndex: 0 }
-                  : { value: hfVariants.footerFirst, ...split(parsed.footerFirst?.images), view: 'first', sectionIndex: 0 }
+                  ? { value: hfVariants.headerFirst, ...split(parsed.headerFirst?.images, hfVariants.headerFirst), view: 'first', sectionIndex: 0 }
+                  : { value: hfVariants.footerFirst, ...split(parsed.footerFirst?.images, hfVariants.footerFirst), view: 'first', sectionIndex: 0 }
               }
               if (evenOddHf && pageNo % 2 === 0) {
                 return kind === 'header'
-                  ? { value: hfVariants.headerEven, ...split(parsed.headerEven?.images), view: 'even', sectionIndex: 0 }
-                  : { value: hfVariants.footerEven, ...split(parsed.footerEven?.images), view: 'even', sectionIndex: 0 }
+                  ? { value: hfVariants.headerEven, ...split(parsed.headerEven?.images, hfVariants.headerEven), view: 'even', sectionIndex: 0 }
+                  : { value: hfVariants.footerEven, ...split(parsed.footerEven?.images, hfVariants.footerEven), view: 'even', sectionIndex: 0 }
               }
               return kind === 'header'
-                ? { value: header, ...split(parsed.headerImages), view: 'default', sectionIndex: 0 }
-                : { value: footer, ...split(parsed.footerImages), view: 'default', sectionIndex: 0 }
+                ? { value: header, ...split(parsed.headerImages, header), view: 'default', sectionIndex: 0 }
+                : { value: footer, ...split(parsed.footerImages, footer), view: 'default', sectionIndex: 0 }
             }
             const pageSlice = slices[pageIdx]
             const sec = secList[Math.min(pageSlice.section, secList.length - 1)]
             const refs = effRefs![Math.min(pageSlice.section, effRefs!.length - 1)]
             const variant = hfVariantOf(sec.titlePg, firsts[pageIdx], evenOddHf, pageNo)
-            const ov = variant === 'default' ? sectionHfOverride(pageSlice.section, kind) : null
+            const ov = sectionHfOverride(pageSlice.section, kind, variant)
             const rId = refs[kind][variant]
             return {
               value: ov ?? hfFromPart(rId ? parsed.hfParts?.[rId] : null),
-              ...split(rId ? parsed.hfParts?.[rId]?.images : undefined),
+              ...split(rId ? parsed.hfParts?.[rId]?.images : undefined, ov),
               view: variant,
               sectionIndex: pageSlice.section,
             }
@@ -3523,6 +3576,11 @@ export function App() {
               nums[pageIdx],
               secList?.[Math.min(slices[pageIdx].section, secList.length - 1)]?.pageNumberFmt,
             )
+          hfPageModels = slices.map((slice, pageIndex) => ({
+            pageIndex, pageNo: pageNoTextOf(pageIndex), pageTotal: visiblePageCount(slices),
+            settings: secList?.[slice.section]?.settings ?? section,
+            header: pageHfOf(pageIndex, 'header'), footer: pageHfOf(pageIndex, 'footer'),
+          }))
           const hfSig = (v: HeaderFooter | null | undefined) =>
             v ? `${v.text}·${v.pageNumber ? 1 : 0}·${v.paras?.length ?? 0}` : ''
           // identity + placement of floating header images: widget keys must change
@@ -4259,6 +4317,23 @@ export function App() {
         } else {
           pm.style.removeProperty('min-height')
         }
+        // 最后一页高度完成后再读取纸张矩形，避免页脚跟随正文尾部。
+        const hfWrap = (pm.closest('.page-wrap') as HTMLElement) ?? pm
+        const hfFirst = secList?.[0]?.settings ?? section
+        const hfFrames = pageFramesFromGaps(hfWrap, factor, {
+          left: pageLeftOf(hfFirst), width: twipsToPx(hfFirst.pageWidth),
+        })
+        const nextHfPages = hfPageModels.map((model, index) => {
+          const frame = hfFrames[index]
+          return { ...model, top: frame?.top ?? index * (twipsToPx(model.settings.pageHeight) + GAP_BAND),
+            left: frame?.left ?? pageLeftOf(model.settings), width: twipsToPx(model.settings.pageWidth),
+            height: twipsToPx(model.settings.pageHeight) }
+        })
+        // 不把图片数据反复序列化到比较键；同一内容只会产生一次 React 更新。
+        const signature = (pages: CanvasHfPage[]) => JSON.stringify(pages, (key, value) =>
+          key === 'floats' ? undefined : key === 'dataUrl' && typeof value === 'string'
+            ? `${value.length}:${value.slice(0, 80)}:${value.slice(-80)}` : value)
+        setCanvasHfPages(previous => signature(previous) === signature(nextHfPages) ? previous : nextHfPages)
         // endnote area: Word puts it right after the last body line, not at the page
         // bottom — anchor it to the flow end measured in the final display state
         setEndnotesAreaTop(
@@ -4453,6 +4528,11 @@ export function App() {
       return
     }
     const locateSection = () => {
+      // 页眉页脚使用独立编辑面，正文选区仍留在旧节；布局重算不能覆盖当前页的目标节。
+      if (activeHfRef.current) {
+        setActiveSection(activeHfRef.current.sectionIndex)
+        return
+      }
       const { $head } = editor.state.selection
       const topIndex = $head.depth > 0 ? $head.index(0) : 0
       setActiveSection(sectionIndexAtBlock(editor.state.doc, sections, topIndex))
@@ -5103,74 +5183,14 @@ export function App() {
 
   const onDocDoubleClick = useCallback((e: ReactMouseEvent) => {
     const target = e.target as HTMLElement
-    const gap = target.closest('.page-gap-hf') as (HTMLElement & {
-      __fridayHf?: {
-        kind: 'header' | 'footer'
-        value: HeaderFooter
-        view: HfView
-        sectionIndex?: number
-      }
-    }) | null
-    if (gap && !readMode && !isProtected) {
-      const meta = gap.__fridayHf
-      if (!meta || gap.dataset.hfEditing === '1') return
-      e.preventDefault()
-      e.stopPropagation()
-      // The contextual ribbon follows the exact page variant that was
-      // double-clicked (first/odd/even/default), just like Word/WPS.
-      setHfView(meta.view)
-      gap.dataset.hfEditing = '1'
-      gap.classList.add('page-hf-editing')
-      gap.dataset.hfLabel = meta.kind === 'header' ? '页眉' : '页脚'
-      const surface = document.createElement('div')
-      surface.className = 'page-hf-edit-surface'
-      surface.contentEditable = 'true'
-      surface.spellcheck = spellcheckEnabled()
-      surface.innerText = hfEditText(meta.value)
-      gap.replaceChildren(surface)
-      setHeaderFooterEditing(true)
-      const initial = surface.innerText
-      let done = false
-      const finish = (cancel = false) => {
-        if (done) return
-        done = true
-        surface.removeEventListener('blur', onBlur)
-        surface.removeEventListener('keydown', onKeyDown)
-        if (!cancel && surface.innerText !== initial) {
-          commitHf(meta.kind, applyHfText(meta.value, surface.innerText), meta.view, meta.sectionIndex)
-        }
-        gap.dataset.hfEditing = '0'
-        gap.classList.remove('page-hf-editing')
-        setHeaderFooterEditing(false)
-      }
-      const onBlur = () => finish(false)
-      const onKeyDown = (keyEvent: KeyboardEvent) => {
-        if (keyEvent.key === 'Escape') {
-          keyEvent.preventDefault()
-          keyEvent.stopPropagation()
-          finish(true)
-        }
-      }
-      surface.addEventListener('blur', onBlur)
-      surface.addEventListener('keydown', onKeyDown)
-      surface.focus()
-      const selection = window.getSelection()
-      if (selection) {
-        selection.removeAllRanges()
-        const range = document.createRange()
-        range.selectNodeContents(surface)
-        range.collapse(false)
-        selection.addRange(range)
-      }
-      return
-    }
+    if (activeHfRef.current && target.closest('.doc-page')) { exitHf(); return }
     if (!target.closest('.doc-page')) return
     // behind-text pictures sit under the text layer; same fall-through as the right-click path
     const img =
       target.closest('img') ?? findFloatImageAt(e.clientX, e.clientY)?.querySelector('img')
     const src = img?.getAttribute('src')
     if (src) setViewImage(src)
-  }, [readMode, isProtected, commitHf, setHfView])
+  }, [readMode, isProtected])
 
   // genoffice CLI (`open --block`, `selection`): the shell evaluates this hook
   useEffect(() => {
@@ -5625,15 +5645,16 @@ export function App() {
     onToggleAi: () => setShowAi((v) => !v),
     onSection: (next: SectionSettings) => {
       // layout applies to the cursor's section; the final section's sectPr goes through SaveOptions.section (also drives canvas geometry)
+      const index = activeHfRef.current?.sectionIndex ?? activeSection
       setSections((prev) =>
-        prev.map((s, i) => (i === activeSection ? { ...s, settings: next } : s)),
+        prev.map((s, i) => (i === index ? { ...s, settings: next } : s)),
       )
-      if (sections.length <= 1 || activeSection === sections.length - 1) {
+      if (sections.length <= 1 || index === sections.length - 1) {
         setSection(next)
         setSectionDirty(true)
       } else {
-        setSectionsDirty((d) => (d.includes(activeSection) ? d : [...d, activeSection]))
-        setStatus(t('appSectionSettingsApplied', { n: activeSection + 1 }))
+        setSectionsDirty((d) => (d.includes(index) ? d : [...d, index]))
+        setStatus(t('appSectionSettingsApplied', { n: index + 1 }))
       }
     },
     onInsertSectionBreak: (type: 'nextPage' | 'continuous' | 'evenPage' | 'oddPage') =>
@@ -5678,16 +5699,22 @@ export function App() {
       setShowAi(true)
       setAiPreset({ text, nonce: Date.now(), autoRun: true })
     },
-    onHeader: (next: HeaderFooter) => {
-      setHeader(next)
-      setHeaderDirty(true)
+    onHeader: (next: HeaderFooter) => commitHf('header', next),
+    onExitHeaderFooter: exitHf,
+    onNavigateHeaderFooter: (direction: 'previous' | 'next' | 'switch') => {
+      const active = activeHfRef.current
+      if (!active) return
+      const pageIndex = Math.max(0, Math.min(canvasHfPages.length - 1,
+        active.pageIndex + (direction === 'next' ? 1 : direction === 'previous' ? -1 : 0)))
+      const kind = direction === 'switch' ? active.kind === 'header' ? 'footer' : 'header' : active.kind
+      const page = canvasHfPages[pageIndex]
+      if (!page) return
+      activateHf({ pageIndex, kind, sectionIndex: page[kind].sectionIndex, view: page[kind].view })
+      requestAnimationFrame(() => document.querySelector(`.canvas-hf-page[data-hf-page-index="${pageIndex}"] .page-hf-${kind}`)?.scrollIntoView({ block: 'center' }))
     },
     onPageNumFormat: openPgNumModal,
     onInsertField: insertField,
-    onFooter: (next: HeaderFooter) => {
-      setFooter(next)
-      setFooterDirty(true)
-    },
+    onFooter: (next: HeaderFooter) => commitHf('footer', next),
     onTitlePg: toggleTitlePg,
     onEvenOddHf: (on: boolean) => {
       setEvenOddHf(on)
@@ -5904,7 +5931,7 @@ export function App() {
         styles={ribbonStyles}
         docDefaults={doc?.parsed.docDefaults}
         showAi={showAi}
-        section={sections[activeSection]?.settings ?? section}
+        section={sections[activeHfTarget?.sectionIndex ?? activeSection]?.settings ?? section}
         activeSection={sections.length > 1 ? activeSection : null}
         pageColor={pageColor}
         watermark={watermark}
@@ -5921,10 +5948,14 @@ export function App() {
         zoom={Math.round(zoom)}
         darkPage={darkPage}
         tabRequest={ribbonTabRequest}
-        header={header}
-        footer={footer}
+        header={canvasHfPages[activeHfTarget?.pageIndex ?? 0]?.header.value ?? shownHeader}
+        footer={canvasHfPages[activeHfTarget?.pageIndex ?? 0]?.footer.value ?? shownFooter}
+        headerFooterKind={activeHfTarget?.kind ?? 'header'}
+        hfCanPrevious={(activeHfTarget?.pageIndex ?? 0) > 0}
+        hfCanNext={(activeHfTarget?.pageIndex ?? 0) < canvasHfPages.length - 1}
         headerFooterEditing={headerFooterEditing}
-        titlePg={titlePg}
+        hfDocumentInfo={hfDocumentInfo}
+        titlePg={sections[activeHfTarget?.sectionIndex ?? activeSection]?.titlePg ?? titlePg}
         evenOddHf={evenOddHf}
         showMarks={showMarks}
         showRuler={showRuler}
@@ -6068,13 +6099,16 @@ export function App() {
                         }}
                       />
                     )}
-                    <div className={mixedPaper ? 'page-wrap paper-mixed' : 'page-wrap'}>
+                    <div className={`${mixedPaper ? 'page-wrap paper-mixed' : 'page-wrap'}${canvasHfPages.length ? ' hf-canvas-active' : ''}`}>
+                      <CanvasHeaderFooters pages={canvasHfPages} active={activeHfTarget}
+                        readOnly={isProtected || readMode} onActivate={activateHf} onExit={exitHf}
+                        onCommit={(target, next) => commitHf(target.kind, next, target.view, target.sectionIndex)} />
                       {watermark && watermarkDirty && (
                         <div className="page-watermark" aria-hidden="true">
                           {watermark}
                         </div>
                       )}
-                      {!readMode && (
+                      {false && !readMode && (
                         <div
                           className={`hf-variant-chips${titlePg || evenOddHf ? '' : ' hf-chips-idle'}`}
                         >

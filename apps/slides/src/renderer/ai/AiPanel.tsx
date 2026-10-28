@@ -1,4 +1,4 @@
-import { aiPanelWidthAtPointer, AiPanelSideButton } from '@genoffice/ui'
+import { aiPanelWidthAtPointer, AiHistoryButton, AiPanelSideButton } from '@genoffice/ui'
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import {
   AgentLoop,
@@ -2075,6 +2075,21 @@ export function AiPanel({
           <AiPanelSideButton
             lang={lang}
             onMove={(side) => window.slidesApi.setAiPanelPrefs({ side })}
+          />
+          <AiHistoryButton
+            locale={lang}
+            entries={[...historicChat, ...chat]}
+            loadEntries={async () => {
+              const ids = chatRefIds.current
+              const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
+              if (!ids || !api) return [...historicChat, ...chat]
+              const messages = await api.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
+              return messages.map((message) => ({
+                role: message.role,
+                text: message.text,
+                tools: message.tools?.map((tool) => ({ name: tool.name, summary: tool.summary, isError: tool.isError })),
+              }))
+            }}
           />
           {(chat.length > 0 || historicChat.length > 0) && (
             <button

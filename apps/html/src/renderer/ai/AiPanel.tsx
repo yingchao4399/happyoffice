@@ -1,4 +1,4 @@
-import { aiPanelWidthAtPointer, AiPanelSideButton } from '@genoffice/ui'
+import { aiPanelWidthAtPointer, AiHistoryButton, AiPanelSideButton } from '@genoffice/ui'
 import fridayIcon from '../assets/friday-icon.png'
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
@@ -1131,6 +1131,21 @@ export function AiPanel({
           <AiPanelSideButton
             lang={lang}
             onMove={(side) => window.htmlApi.setAiPanelPrefs({ side })}
+          />
+          <AiHistoryButton
+            locale={lang}
+            entries={chat}
+            loadEntries={async () => {
+              const ids = chatIdsRef.current
+              const api = window.projectApi
+              if (!ids || !api) return chat
+              const messages = await api.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
+              return messages.map((message) => ({
+                role: message.role,
+                text: message.text,
+                tools: message.tools?.map((tool) => ({ name: tool.name, summary: tool.summary, isError: tool.isError })),
+              }))
+            }}
           />
           {chat.length > 0 && (
             <button

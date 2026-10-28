@@ -1,5 +1,17 @@
+import { hfMenuZh } from '../../editor/hf-menu-strings'
 /** ribbon strings, zh: defines the key set every other locale shard must match. */
 export const zh = {
+  ...hfMenuZh,
+  ribbonHfRemove: '移除当前页眉/页脚',
+  ribbonHfLine: '页眉横线',
+  ribbonHfLineSpacing: '与文字间距',
+  ribbonHfTotalPages: '总页数',
+  ribbonHfSwitch: '页眉页脚切换',
+  ribbonHfPrevious: '上一页',
+  ribbonHfNext: '下一页',
+  ribbonHfNavigate: '导航',
+  ribbonHfPosition: '位置',
+
   ribbonAiCreditNote: '将调用 AI 并消耗额度',
   ribbonAiRewriteConfirm:
     '此操作将调用 AI：会消耗额度，并可能改写整篇内容。是否继续？（确认后不再提示）',

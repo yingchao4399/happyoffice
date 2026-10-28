@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const en = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: 'Type {label} text',
+
   ribbonAiCreditNote: 'Uses AI and consumes credits',
   ribbonAiRewriteConfirm:
     'This action calls the AI assistant: it consumes credits and may rewrite the entire content. Continue? (You will not be asked again.)',
@@ -258,7 +272,6 @@ export const en = {
   ribbonHeaderTip: 'Edit header',
   ribbonFooter: 'Footer',
   ribbonFooterTip: 'Edit footer',
-  ribbonHfPlaceholder: 'Type {label} text',
   ribbonPageNumber: 'Page Number',
   ribbonPnTopLeft: 'Top Left',
   ribbonPnTopCenter: 'Top Center',

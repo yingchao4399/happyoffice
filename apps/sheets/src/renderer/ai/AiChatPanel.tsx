@@ -1,4 +1,4 @@
-import { aiPanelWidthAtPointer, AiPanelSideButton } from '@genoffice/ui'
+import { aiPanelWidthAtPointer, AiHistoryButton, AiPanelSideButton, type AiHistoryEntry } from '@genoffice/ui'
 import React, { useEffect, useRef, useState } from 'react'
 import { AiComposer, AiScopeQuote, AiTypingIndicator, type AiScopeQuoteData } from '@genoffice/ui'
 import { GensparkMark } from '../ribbon-icons'
@@ -214,6 +214,7 @@ export function AiChatPanel({
   hasContent,
   chat,
   historicChat = [],
+  loadHistoryEntries,
   attachments,
   attachNotice,
   onPickAttachments,
@@ -240,6 +241,7 @@ export function AiChatPanel({
   readonly hasContent: boolean
   readonly chat: readonly AiChatMessage[]
   readonly historicChat?: readonly AiChatMessage[]
+  readonly loadHistoryEntries?: (() => Promise<readonly AiHistoryEntry[]>) | undefined
   /// Chat attachments (chips + 📎 button + drag onto the panel), same structure
   /// as the docs/slides AI panels.
   readonly attachments: readonly AttachmentMeta[]
@@ -511,6 +513,7 @@ Friday
             lang={lang}
             onMove={(side) => window.desktopApi.setAiPanelPrefs({ side })}
           />
+          <AiHistoryButton locale={lang} entries={[...historicChat, ...chat]} {...(loadHistoryEntries ? { loadEntries: loadHistoryEntries } : {})} />
           {(chat.length > 0 || historicChat.length > 0) && (
             <button
               className="ai-header-btn"

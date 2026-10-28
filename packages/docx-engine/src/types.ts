@@ -820,6 +820,8 @@ export interface NumberingDef {
 /** Content for the default page header / footer. */
 export interface HeaderFooter {
   text: string
+  /** 显式模板替换或删除：丢弃原部件中的表格、图片等；普通文本编辑仍保留它们。 */
+  replaceContent?: boolean
   /** append an automatic page number (PAGE field), footer only */
   pageNumber?: boolean
   /**

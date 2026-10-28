@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const he = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: 'הקלד טקסט עבור {label}',
+
   ribbonAiCreditNote: 'משתמש ב-AI וצורך קרדיטים',
   ribbonAiRewriteConfirm:
     'פעולה זו מפעילה AI: היא צורכת קרדיטים ועשויה לשכתב את כל התוכן. להמשיך? (לא תישאל שוב.)',
@@ -257,7 +271,6 @@ export const he = {
   ribbonHeaderTip: 'ערוך כותרת עליונה',
   ribbonFooter: 'כותרת תחתונה',
   ribbonFooterTip: 'ערוך כותרת תחתונה',
-  ribbonHfPlaceholder: 'הקלד טקסט עבור {label}',
   ribbonPageNumber: 'מספר עמוד',
   ribbonPnTopLeft: 'למעלה משמאל',
   ribbonPnTopCenter: 'למעלה במרכז',

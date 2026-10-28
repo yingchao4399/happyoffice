@@ -1,4 +1,4 @@
-import { aiPanelWidthAtPointer, AiPanelSideButton } from '@genoffice/ui'
+import { aiPanelWidthAtPointer, AiHistoryButton, AiPanelSideButton } from '@genoffice/ui'
 import fridayIcon from '../assets/friday-icon.png'
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
@@ -629,6 +629,21 @@ Friday
           <AiPanelSideButton
             lang={lang}
             onMove={(side) => window.pdfApi.setAiPanelPrefs({ side })}
+          />
+          <AiHistoryButton
+            locale={lang}
+            entries={chat}
+            loadEntries={async () => {
+              const ids = chatIdsRef.current
+              const store = chatStore()
+              if (!ids || !store) return chat
+              const messages = await store.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
+              return messages.map((message) => ({
+                role: message.role,
+                text: message.text,
+                tools: message.tools?.map((tool) => ({ name: tool.name, summary: tool.summary, isError: tool.isError })),
+              }))
+            }}
           />
           {chat.length > 0 && (
             <button

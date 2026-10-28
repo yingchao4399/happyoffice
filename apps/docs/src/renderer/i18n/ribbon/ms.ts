@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const ms = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: 'Taip teks {label}',
+
   ribbonAiCreditNote: 'Menggunakan AI dan menggunakan kredit',
   ribbonAiRewriteConfirm:
     'Tindakan ini memanggil AI: menggunakan kredit dan mungkin menulis semula keseluruhan kandungan. Teruskan? (Tidak akan ditanya lagi.)',
@@ -260,7 +274,6 @@ export const ms = {
   ribbonHeaderTip: 'Edit pengepala',
   ribbonFooter: 'Pengaki',
   ribbonFooterTip: 'Edit pengaki',
-  ribbonHfPlaceholder: 'Taip teks {label}',
   ribbonPageNumber: 'Nombor Halaman',
   ribbonPnTopLeft: 'Atas Kiri',
   ribbonPnTopCenter: 'Atas Tengah',

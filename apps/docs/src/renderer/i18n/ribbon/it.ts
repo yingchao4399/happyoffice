@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const it = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: 'Digita il testo per {label}',
+
   ribbonAiCreditNote: "Usa l'IA e consuma crediti",
   ribbonAiRewriteConfirm:
     "Questa azione richiama l'IA: consuma crediti e può riscrivere l'intero contenuto. Continuare? (Non verrà più chiesto.)",
@@ -261,7 +275,6 @@ export const it = {
   ribbonHeaderTip: 'Modifica intestazione',
   ribbonFooter: 'Piè di pagina',
   ribbonFooterTip: 'Modifica piè di pagina',
-  ribbonHfPlaceholder: 'Digita il testo per {label}',
   ribbonPageNumber: 'Numero di pagina',
   ribbonPnTopLeft: 'In alto a sinistra',
   ribbonPnTopCenter: 'In alto al centro',

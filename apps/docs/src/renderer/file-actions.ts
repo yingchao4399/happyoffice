@@ -656,8 +656,8 @@ export async function buildDocBytes(ctx: FileActionContext): Promise<Uint8Array 
   }
   // header/footer edits for non-final sections: the engine writes parts/references per section
   const sectionHf = Object.entries(ctx.sectionHfEdits).map(([key, hf]) => {
-    const [lastBlockIndex, kind] = key.split(':')
-    return { lastBlockIndex: Number(lastBlockIndex), kind: kind as 'header' | 'footer', hf }
+    const [lastBlockIndex, kind, view] = key.split(':')
+    return { lastBlockIndex: Number(lastBlockIndex), kind: kind as 'header' | 'footer', view: view as 'first' | 'even' | undefined, hf }
   })
   const bytes = await saveDocx(doc.parsed, saveBlocks, {
     section: ctx.sectionDirty && ctx.section ? ctx.section : undefined,

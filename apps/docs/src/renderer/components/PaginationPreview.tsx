@@ -841,7 +841,7 @@ export function PaginationPreview({
   /** Endnote entries (placed together at the document end, take part in slicing, may continue across pages) */
   endnoteItems?: PageNoteItem[]
   /** Multi-section: unsaved per-section header/footer edit overrides (default variant) */
-  sectionHfOverride?: (sectionIndex: number, kind: 'header' | 'footer') => HeaderFooter | null
+  sectionHfOverride?: (sectionIndex: number, kind: 'header' | 'footer', view?: 'default' | 'first' | 'even') => HeaderFooter | null
   /**
    * Clears the canvas page-gap decorations before the snapshot measure. In-table
    * gap/repeated-header widgets are extra <tr>s that consume rowspan slots, so a
@@ -974,6 +974,8 @@ export function PaginationPreview({
           // these strips (hfFor), so its slice capacity must match or the taller
           // variant's push-down clips slice content off the page (prod100r4/43)
           const firstPart = (kind: 'header' | 'footer') => {
+            const override = sectionHfOverride?.(i, kind, 'first')
+            if (override) return override
             const rId = refs[i]?.[kind]?.first
             const part = rId ? hfParts[rId] : undefined
             return part
@@ -1367,8 +1369,8 @@ export function PaginationPreview({
     const refs = effRefs[Math.min(slice.section, effRefs.length - 1)]
     const variant = hfVariantOf(sec.titlePg, firsts[i], hf.evenOddHf, pageNo)
     // unsaved per-section header/footer edits take priority over document parts (default variant)
-    const ovHeader = variant === 'default' ? sectionHfOverride?.(slice.section, 'header') : null
-    const ovFooter = variant === 'default' ? sectionHfOverride?.(slice.section, 'footer') : null
+    const ovHeader = sectionHfOverride?.(slice.section, 'header', variant)
+    const ovFooter = sectionHfOverride?.(slice.section, 'footer', variant)
     const headerRId = refs.header[variant]
     const footerRId = refs.footer[variant]
     return {
@@ -1402,6 +1404,8 @@ export function PaginationPreview({
       <div className="pv-scroll" aria-hidden="true">
         {slices.map((slice, i) => {
           const parts = hfFor(i)
+          if (parts.header?.replaceContent) parts.headerImages = undefined
+          if (parts.footer?.replaceContent) parts.footerImages = undefined
           const s = settingsOf(slice)
           const pageBox = sectionPageBox(s)
           const pageW = pageBox.width

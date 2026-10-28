@@ -1,4 +1,5 @@
 export { AiPanelSideButton } from './AiPanelSideButton'
+export { AiHistoryButton, type AiHistoryEntry } from './AiHistoryButton'
 export { AiComposer } from './AiComposer'
 export { AiScopeQuote, type AiScopeQuoteData } from './AiScopeQuote'
 export {

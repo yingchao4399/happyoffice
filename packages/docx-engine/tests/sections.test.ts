@@ -302,6 +302,23 @@ describe('sectionHf per-section headers/footers', () => {
       .filter((b) => !b.hidden && b.docxIndex !== null)
       .map((b) => ({ kind: 'original', docxIndex: b.docxIndex! }))
 
+  it('first/even variants in a non-final section save to separate references and survive reparse', async () => {
+    const parsed = await parseDocx(await buildDocx({ bodyXml: P('第一节') + sectBreakPara({ extra: '<w:titlePg/>' }) + P('第二节') }))
+    const sections = readSections(parsed)
+    const saved = await saveDocx(parsed, visibleBlocks(parsed), { sectionHf: [
+      { lastBlockIndex: sections[0].lastBlockIndex, kind: 'footer', hf: { text: '普通页脚' } },
+      { lastBlockIndex: sections[0].lastBlockIndex, kind: 'footer', view: 'first', hf: { text: '首页页脚' } },
+      { lastBlockIndex: sections[0].lastBlockIndex, kind: 'footer', view: 'even', hf: { text: '偶数页脚' } },
+    ] })
+    const reparsed = await parseDocx(saved)
+    const [first, last] = readSections(reparsed)
+    expect(new Set(Object.values(first.footerRefs)).size).toBe(3)
+    expect(reparsed.hfParts?.[first.footerRefs.default!]?.text).toContain('普通页脚')
+    expect(reparsed.hfParts?.[first.footerRefs.first!]?.text).toContain('首页页脚')
+    expect(reparsed.hfParts?.[first.footerRefs.even!]?.text).toContain('偶数页脚')
+    expect(last.footerRefs).toEqual({})
+  })
+
   it('section without references: new part + reference injected into that sectPr, neighbors unaffected', async () => {
     const bodyXml = P('第一节') + sectBreakPara() + P('第二节')
     const parsed = await parseDocx(await buildDocx({ bodyXml }))

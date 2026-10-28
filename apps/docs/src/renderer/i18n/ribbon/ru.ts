@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const ru = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: 'Введите текст: {label}',
+
   ribbonAiCreditNote: 'Использует ИИ и расходует кредиты',
   ribbonAiRewriteConfirm:
     'Это действие вызывает ИИ: расходуются кредиты, и всё содержимое может быть переписано. Продолжить? (Вопрос больше не появится.)',
@@ -260,7 +274,6 @@ export const ru = {
   ribbonHeaderTip: 'Изменить верхний колонтитул',
   ribbonFooter: 'Нижний колонтитул',
   ribbonFooterTip: 'Изменить нижний колонтитул',
-  ribbonHfPlaceholder: 'Введите текст: {label}',
   ribbonPageNumber: 'Номер страницы',
   ribbonPnTopLeft: 'Вверху слева',
   ribbonPnTopCenter: 'Вверху по центру',

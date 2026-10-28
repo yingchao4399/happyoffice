@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuZh } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const zhTW = {
+  ...hfMenuZh,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: '輸入{label}文字',
+
   ribbonAiCreditNote: '將呼叫 AI 並消耗額度',
   ribbonAiRewriteConfirm:
     '此操作將呼叫 AI：會消耗額度，並可能改寫整篇內容。是否繼續？（確認後不再提示）',
@@ -256,7 +270,6 @@ export const zhTW = {
   ribbonHeaderTip: '編輯頁首',
   ribbonFooter: '頁尾',
   ribbonFooterTip: '編輯頁尾',
-  ribbonHfPlaceholder: '輸入{label}文字',
   ribbonPageNumber: '頁碼',
   ribbonPnTopLeft: '頁面頂端左側',
   ribbonPnTopCenter: '頁面頂端置中',

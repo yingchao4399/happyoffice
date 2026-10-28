@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const ar = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: 'اكتب نص {label}',
+
   ribbonAiCreditNote: 'يستدعي الذكاء الاصطناعي ويستهلك الرصيد',
   ribbonAiRewriteConfirm:
     'هذا الإجراء يستدعي الذكاء الاصطناعي: يستهلك الرصيد وقد يعيد كتابة المحتوى بالكامل. هل تريد المتابعة؟ (لن يتم السؤال مرة أخرى.)',
@@ -257,7 +271,6 @@ export const ar = {
   ribbonHeaderTip: 'تحرير رأس الصفحة',
   ribbonFooter: 'تذييل الصفحة',
   ribbonFooterTip: 'تحرير تذييل الصفحة',
-  ribbonHfPlaceholder: 'اكتب نص {label}',
   ribbonPageNumber: 'رقم الصفحة',
   ribbonPnTopLeft: 'أعلى اليسار',
   ribbonPnTopCenter: 'أعلى الوسط',

@@ -46,6 +46,7 @@ import type { ChartSeriesVisualState } from '@genoffice/xlsx-gateway/domain/char
 import type { ChangePlan } from '@genoffice/xlsx-gateway/domain/workbook.types'
 import type { AttachmentMeta } from '../shared/desktop-api'
 import { AiChatPanel, type AiChatMessage } from './ai/AiChatPanel'
+import type { AiHistoryEntry } from '@genoffice/ui'
 import { AiSelectionAsk } from './ai/AiSelectionAsk'
 import type { SelectionAskAnchor } from './ai/selection-ask'
 import {
@@ -173,6 +174,7 @@ interface ExcelShellProps {
   readonly aiBusy: boolean
   readonly chat: readonly AiChatMessage[]
   readonly historicChat?: readonly AiChatMessage[]
+  readonly loadHistoryEntries?: (() => Promise<readonly AiHistoryEntry[]>) | undefined
   /// Chat attachments (chips + 📎 button + drag-and-drop), same structure as the
   /// docs/slides AI panels.
   readonly attachments: readonly AttachmentMeta[]
@@ -323,6 +325,7 @@ export function ExcelShell({
   aiBusy,
   chat,
   historicChat,
+  loadHistoryEntries,
   attachments,
   attachNotice,
   onPickAttachments,
@@ -716,6 +719,7 @@ export function ExcelShell({
           hasContent={sheetHasContent}
           chat={chat}
           {...(historicChat !== undefined ? { historicChat } : {})}
+          {...(loadHistoryEntries ? { loadHistoryEntries } : {})}
           attachments={attachments}
           attachNotice={attachNotice}
           onPickAttachments={onPickAttachments}

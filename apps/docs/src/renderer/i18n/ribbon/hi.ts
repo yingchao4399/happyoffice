@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const hi = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: '{label} पाठ लिखें',
+
   ribbonAiCreditNote: 'AI का उपयोग करता है और क्रेडिट खर्च होते हैं',
   ribbonAiRewriteConfirm:
     'यह क्रिया AI को कॉल करती है: इसमें क्रेडिट खर्च होते हैं और पूरी सामग्री फिर से लिखी जा सकती है। जारी रखें? (दोबारा नहीं पूछा जाएगा।)',
@@ -260,7 +274,6 @@ export const hi = {
   ribbonHeaderTip: 'शीर्ष लेख संपादित करें',
   ribbonFooter: 'पाद लेख',
   ribbonFooterTip: 'पाद लेख संपादित करें',
-  ribbonHfPlaceholder: '{label} पाठ लिखें',
   ribbonPageNumber: 'पृष्ठ संख्या',
   ribbonPnTopLeft: 'शीर्ष बाएँ',
   ribbonPnTopCenter: 'शीर्ष केंद्र',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PAGE_MARK, TOTAL_PAGES_MARK, type HeaderFooter } from '@genoffice/docx-engine'
-import { applyHfText, hfEditText } from '../src/renderer/editor/hf-text'
+import { applyHfText, hfEditText, insertHfRuns } from '../src/renderer/editor/hf-text'
 
 describe('hfEditText', () => {
   it('renders paragraphs as lines with field sentinels as tokens', () => {
@@ -51,6 +51,13 @@ describe('applyHfText', () => {
   it('converts tokens back to field sentinels', () => {
     const next = applyHfText(null, '{PAGE} / {NUMPAGES}')
     expect(next.paras?.[0]?.runs[0]?.text).toBe(`${PAGE_MARK} / ${TOTAL_PAGES_MARK}`)
+    expect(next.pageNumber).toBe(true)
+  })
+
+  it('does not recreate a page field after its token is deleted', () => {
+    const base: HeaderFooter = { text: PAGE_MARK, pageNumber: true, paras: [{ runs: [{ text: PAGE_MARK }] }] }
+    expect(applyHfText(base, '').pageNumber).toBe(false)
+    expect(hfEditText(applyHfText(base, 'Only text'))).toBe('Only text')
   })
 
   it('splices cells rows back at their original positions', () => {
@@ -79,5 +86,29 @@ describe('applyHfText', () => {
     const cleared = applyHfText(value, '')
     expect(cleared.text).toBe('')
     expect(cleared.paras).toEqual([{ align: 'right', runs: [] }])
+  })
+})
+
+
+describe('header/footer fields survive editing', () => {
+  const value: HeaderFooter = { text:'Date: 2026-10-26!',paras:[{ align:'right',runs:[{ text:'Date: ' },{ text:'2026-10-26',instrField:'DATE' },{ text:'!' }] }] }
+  it('keeps an unchanged field when editing the surrounding text', () => {
+    const next = applyHfText(value,'Date: 2026-10-26! edited')
+    expect(next.paras?.[0].runs.find(r => r.instrField === 'DATE')?.text).toBe('2026-10-26')
+    expect(next.paras?.[0].runs.filter(r => r.instrField).length).toBe(1)
+  })
+  it('does not turn edited literal text into a field', () => {
+    const next = applyHfText(value,'Date: replacement!')
+    expect(next.paras?.[0].runs.some(r => r.instrField)).toBe(false)
+  })
+  it('inserts at the selected position and retains the field on its right', () => {
+    const next = insertHfRuns(value,[{ text:PAGE_MARK }],6,6)
+    expect(next.text).toBe('Date: '+PAGE_MARK+'2026-10-26!')
+    expect(next.paras?.[0].runs.find(r => r.instrField === 'DATE')?.text).toBe('2026-10-26')
+    expect(next.pageNumber).toBe(true)
+  })
+  it('maps visible page tokens to the correct offsets', () => {
+    const base: HeaderFooter = { text:PAGE_MARK+' title',paras:[{runs:[{text:PAGE_MARK},{text:' title'}]}] }
+    expect(insertHfRuns(base,[{text:' X'}],6,6).text).toBe(PAGE_MARK+' X title')
   })
 })

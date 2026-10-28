@@ -457,6 +457,19 @@ describe('surgical header rewrite (real Word headers carry tables/logos)', () =>
     expect(hdr).not.toContain('公司内部资料') // the text-paragraph set was replaced
   })
 
+  it('explicit removal and template replacement discard the old table', async () => {
+    const { parsed, saveBlocks } = await richHeaderDocx()
+    for (const text of ['', '新模板']) {
+      const saved = await saveDocx(parsed, saveBlocks, { header: { text, replaceContent: true } })
+      const zip = await JSZip.loadAsync(saved)
+      const hdr = await zip.file('word/header1.xml')!.async('string')
+      expect(hdr).not.toContain('<w:tbl>')
+      expect(hdr).not.toContain('ACME')
+      expect(hdr).not.toContain('公司内部资料')
+      expect((await parseDocx(saved)).headerText ?? '').toBe(text)
+    }
+  })
+
   it('parses the header table as a cells paragraph (columns, widths, cell gap in text)', async () => {
     const { parsed } = await richHeaderDocx()
     const paras = parsed.headerParas!
@@ -560,6 +573,10 @@ describe('header edits keep image paragraphs', () => {
     expect(hdr).toContain(LOGO_P) // the logo paragraph keeps its original bytes
     expect(hdr).toContain('新页眉文字')
     expect(hdr).not.toContain('旧页眉文字')
+    const removed = await saveDocx(parsed, saveBlocks, { header: { text: '', paras: [], replaceContent: true } })
+    const removedXml = await (await JSZip.loadAsync(removed)).file('word/header1.xml')!.async('string')
+    expect(removedXml).not.toContain('w:drawing')
+    expect(removedXml).not.toContain('旧页眉文字')
   })
 })
 

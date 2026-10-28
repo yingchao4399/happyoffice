@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const nl = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: 'Typ tekst voor {label}',
+
   ribbonAiCreditNote: 'Gebruikt AI en verbruikt tegoed',
   ribbonAiRewriteConfirm:
     'Deze actie roept AI aan: het verbruikt tegoed en kan de volledige inhoud herschrijven. Doorgaan? (U wordt niet opnieuw gevraagd.)',
@@ -262,7 +276,6 @@ export const nl = {
   ribbonHeaderTip: 'Koptekst bewerken',
   ribbonFooter: 'Voettekst',
   ribbonFooterTip: 'Voettekst bewerken',
-  ribbonHfPlaceholder: 'Typ tekst voor {label}',
   ribbonPageNumber: 'Paginanummer',
   ribbonPnTopLeft: 'Linksboven',
   ribbonPnTopCenter: 'Middenboven',

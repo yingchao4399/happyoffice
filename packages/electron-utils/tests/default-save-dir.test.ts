@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -59,15 +59,13 @@ describe('resolveDefaultSaveDir', () => {
   })
 
   it('degrades to the fallback when the configured folder is not writable', () => {
-    const readOnly = join(root, 'read-only')
-    mkdirSync(readOnly)
-    chmodSync(readOnly, 0o500)
+    // A file path is unusable as a directory on every host. chmod-based tests
+    // are unreliable under Windows administrator accounts, where ACL checks
+    // can still report a 0500 directory as writable.
+    const readOnly = join(root, 'blocked')
+    writeFileSync(readOnly, 'x')
     const fallback = join(root, 'fallback')
-    try {
-      expect(resolveDefaultSaveDir(readOnly, fallback)).toBe(fallback)
-    } finally {
-      chmodSync(readOnly, 0o700)
-    }
+    expect(resolveDefaultSaveDir(readOnly, fallback)).toBe(fallback)
   })
 
   it('throws a descriptive error when the fallback itself is unusable', () => {

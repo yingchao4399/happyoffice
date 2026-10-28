@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const cs = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: 'Zadejte text {label}',
+
   ribbonAiCreditNote: 'Používá AI a spotřebovává kredity',
   ribbonAiRewriteConfirm:
     'Tato akce volá asistenta AI: spotřebovává kredity a může přepsat celý obsah. Pokračovat? (Znovu se už nezeptáme.)',
@@ -259,7 +273,6 @@ export const cs = {
   ribbonHeaderTip: 'Upravit záhlaví',
   ribbonFooter: 'Zápatí',
   ribbonFooterTip: 'Upravit zápatí',
-  ribbonHfPlaceholder: 'Zadejte text {label}',
   ribbonPageNumber: 'Číslo stránky',
   ribbonPnTopLeft: 'Nahoře vlevo',
   ribbonPnTopCenter: 'Nahoře uprostřed',

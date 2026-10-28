@@ -1,3 +1,4 @@
+import type { HfDocumentInfo } from '../editor/hf-presets'
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { OfficeFileMenu, type OfficeFileAction } from '@genoffice/ui/office-file-menu'
@@ -221,7 +222,13 @@ interface RibbonProps {
   tabRequest?: { tab: string; nonce: number } | null
   header: HeaderFooter | null
   /** contextual tab is shown while the page header/footer editor has focus */
+  hfDocumentInfo?: HfDocumentInfo
   headerFooterEditing?: boolean
+  headerFooterKind?: 'header' | 'footer'
+  onExitHeaderFooter?: () => void
+  onNavigateHeaderFooter?: (direction: 'previous' | 'next' | 'switch') => void
+  hfCanPrevious?: boolean
+  hfCanNext?: boolean
   onHeader: (next: HeaderFooter) => void
   onPageNumFormat: () => void
   onInsertField: (instr: string) => void
@@ -679,7 +686,13 @@ function RibbonInner({
   onAiPreset,
   tabRequest,
   header,
+  hfDocumentInfo,
   headerFooterEditing = false,
+  headerFooterKind = 'header',
+  onExitHeaderFooter,
+  onNavigateHeaderFooter,
+  hfCanPrevious = false,
+  hfCanNext = false,
   onHeader,
   onPageNumFormat,
   onInsertField,
@@ -2081,6 +2094,12 @@ function RibbonInner({
         {tab === 'headerFooter' && headerFooterEditing ? (
           <HeaderFooterTab
             hasDoc={canEdit}
+            filePath={filePath}
+            documentInfo={hfDocumentInfo}
+            activeKind={headerFooterKind}
+            onNavigate={onNavigateHeaderFooter}
+            canPrevious={hfCanPrevious}
+            canNext={hfCanNext}
             header={header}
             footer={footer}
             onHeader={onHeader}
@@ -2093,7 +2112,7 @@ function RibbonInner({
             section={section}
             onSection={onSection}
             onExit={() => {
-              ;(document.activeElement as HTMLElement | null)?.blur()
+              onExitHeaderFooter?.()
               setTab(lastRegularTab.current as RibbonTab)
             }}
           />

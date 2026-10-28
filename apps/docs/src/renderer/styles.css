@@ -389,7 +389,7 @@ button {
 }
 
 .qa-btn:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .qa-btn:disabled {
@@ -535,7 +535,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .file-menu button:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .file-menu button:disabled {
@@ -802,7 +802,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .rb-big:hover:not(:disabled) .rb-big-icon {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .rb-big:disabled {
@@ -828,7 +828,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .rb-big.ai-entry:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .rb-big.ai-entry.active {
@@ -873,7 +873,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .rb-small:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .rb-small.active {
@@ -946,7 +946,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .rb-caret.rb-combo-caret:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .rb-icon {
@@ -979,7 +979,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .rb-icon:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .rb-icon.active {
@@ -1035,7 +1035,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .rb-caret:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .rb-caret:disabled {
@@ -1058,7 +1058,7 @@ html.genoffice-popover-open .ribbon-tabs {
 
 .rb-split-wrap:has(> .rb-icon + .rb-caret):hover > .rb-icon:not(:disabled),
 .rb-split-wrap:has(> .rb-icon + .rb-caret):hover > .rb-caret:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .rb-split-wrap:has(> .rb-icon + .rb-caret) > .rb-icon:hover:not(:disabled),
@@ -1174,7 +1174,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .color-clear:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .color-palette-highlight {
@@ -1224,7 +1224,7 @@ html.genoffice-popover-open .ribbon-tabs {
 /* Selected (no highlight applied) is a quiet filled state, matching the
    shared picker's auto row — an accent ring reads as a stray focus outline. */
 .color-highlight-none.selected {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 /* Anchor positioning for the shared Word-style color panel (@genoffice/ui
@@ -1258,7 +1258,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .color-none:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 /* line spacing dropdown */
@@ -1310,7 +1310,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .spacing-menu button:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .spacing-menu button.active {
@@ -1339,7 +1339,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .rb-font-size-menu button.active:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .rb-font-size-menu button.active::before {
@@ -1369,7 +1369,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .rb-font-family-menu button.active:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .rb-font-family-menu button.active::before {
@@ -1425,7 +1425,7 @@ html.genoffice-popover-open .ribbon-tabs {
 
 .cover-card:hover {
   border-color: var(--word-blue);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .cover-thumb-page {
@@ -1499,7 +1499,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .table-picker-custom:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 /* Word-style table move handle at the hovered table's top-left corner */
@@ -1859,7 +1859,7 @@ html.genoffice-popover-open .ribbon-tabs {
 }
 
 .layout-menu button:not(:disabled):hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .layout-menu button:disabled {
@@ -2121,7 +2121,7 @@ th.cell-rev-del {
 
 .style-gallery-more:hover {
   border-color: var(--border-strong);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .style-gallery-menu {
@@ -2166,7 +2166,7 @@ th.cell-rev-del {
 
 .style-card:hover:not(:disabled) {
   border-color: var(--border-strong);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .style-card.active {
@@ -2767,10 +2767,9 @@ th.cell-rev-del {
 }
 
 .page-hf-editing {
-  position: relative;
-  outline: 2px solid var(--word-blue);
-  outline-offset: 2px;
-  border-radius: 2px;
+  /* 页眉页脚始终相对纸张定位，进入编辑不能改变坐标参照。 */
+  position: absolute;
+  outline: none;
   background: var(--docs-paper);
   color: var(--docs-paper-ink);
   overflow: visible;
@@ -2803,6 +2802,18 @@ th.cell-rev-del {
   min-height: 1.3em;
   white-space: pre-wrap;
 }
+
+.canvas-hf-layer { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.canvas-hf-page { position: absolute; pointer-events: none; }
+.canvas-hf-page .page-hf { pointer-events: auto; cursor: text; }
+.canvas-hf-hit { position: absolute; left: 0; right: 0; pointer-events: auto; cursor: text; }
+.canvas-hf-hit-header { top: 0; }
+.canvas-hf-hit-footer { bottom: 0; }
+/* 展示与输入统一在页坐标层；分页占位符仅保留测量与导出数据。 */
+.page-wrap.hf-canvas-active > .page-hf,
+.page-wrap.hf-canvas-active .page-gap-hf { visibility: hidden; pointer-events: none; }
+.canvas-hf-page .page-hf-editing::before { top: auto; bottom: -10px; transform: none; }
+.canvas-hf-page .page-hf-editing.page-hf-footer::before { top: -10px; bottom: auto; }
 
 .page-hf-header {
   top: var(--header-dist, 48px);
@@ -2908,7 +2919,7 @@ th.cell-rev-del {
 }
 
 .nav-pane-close:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   color: var(--text);
 }
 
@@ -2933,7 +2944,7 @@ th.cell-rev-del {
 }
 
 .nav-item:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   color: var(--accent);
 }
 
@@ -3175,12 +3186,12 @@ th.cell-rev-del {
 }
 
 .comment-card-del:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   color: var(--danger);
 }
 
 .comment-card-edit:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   color: var(--text);
 }
 
@@ -3258,7 +3269,7 @@ th.cell-rev-del {
 }
 
 .comments-pane-close:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .comments-pane-list {
@@ -4852,7 +4863,7 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 
 .table-tool-group button:hover:not(:disabled) {
   border-color: var(--border);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .table-tool-group button:disabled {
@@ -4971,7 +4982,7 @@ body.docs-crop-active .doc-protected[data-doc-protected='image'] .doc-img-wrap {
 .table-command-button:hover:not(:disabled),
 .table-command-button.active {
   border-color: var(--border-strong);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .table-command-copy {
@@ -6476,7 +6487,7 @@ body.docs-crop-active
 }
 
 .btn-ghost:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .btn-sm {
@@ -6622,7 +6633,7 @@ body.docs-crop-active
 }
 
 .ai-rail:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .ai-rail-text {
@@ -7307,7 +7318,7 @@ body.docs-crop-active
 
 .ai-rollback-btn:hover:not(:disabled) {
   color: var(--text);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .ai-rollback-btn:disabled {
@@ -7374,7 +7385,7 @@ body.docs-crop-active
 }
 
 .ai-msg-raw summary:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   color: var(--text);
 }
 
@@ -7521,7 +7532,7 @@ body.docs-crop-active
 }
 
 .ai-ask-trigger:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 /* anchored ask popover (shared look with the slides one, docs tokens) */
@@ -7556,7 +7567,7 @@ body.docs-crop-active
 }
 
 .ai-ask-pop-close:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   color: var(--text);
 }
 
@@ -7615,7 +7626,7 @@ body.docs-crop-active
 }
 
 .ai-ask-chip:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   color: var(--text);
 }
 
@@ -7640,7 +7651,7 @@ body.docs-crop-active
 }
 
 .ai-ask-cancel:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .ai-ask-cancel:disabled {
@@ -7731,7 +7742,7 @@ body.docs-crop-active
 }
 
 .ai-queue-row:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .ai-queue-row.stale {
@@ -7828,7 +7839,7 @@ body.docs-crop-active
 }
 
 .ai-queue-discard:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .ai-queue-send {
@@ -8182,7 +8193,7 @@ body.docs-crop-active
 }
 
 .ai-attachment-remove:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   color: var(--text);
 }
 
@@ -8512,7 +8523,7 @@ body.docs-crop-active
   font-family: inherit;
   font-size: 12px;
   color: var(--text-dim);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   border-radius: 6px;
   padding: 2px 8px;
   white-space: nowrap;
@@ -8925,7 +8936,7 @@ body.docs-crop-active
   flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
   overflow: hidden;
 }
 
@@ -8967,7 +8978,7 @@ body.docs-crop-active
 }
 
 .print-preview-nav button:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .print-preview-nav button:disabled {
@@ -9197,7 +9208,7 @@ body.docs-crop-active
 }
 
 .find-btn:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .find-btn:disabled {
@@ -9221,7 +9232,7 @@ body.docs-crop-active
 }
 
 .find-action:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .find-action:disabled {
@@ -9569,7 +9580,7 @@ body.docs-crop-active
 }
 
 .read-exit:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 /* ---- Web Layout: document fills the window width, no page chrome ---- */
@@ -10177,12 +10188,12 @@ ruby.doc-ruby rt {
 }
 
 .ink-width:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .ink-width.active {
   border-color: var(--accent);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .ink-width-dot {
@@ -10499,7 +10510,7 @@ tr > .page-gap-cut {
 .list-gallery-word .list-gallery-card.selected {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .list-gallery-none {
@@ -10651,7 +10662,7 @@ tr > .page-gap-cut {
 
 .table-style-card:hover {
   border-color: var(--border);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .table-style-card.active {
@@ -10726,7 +10737,7 @@ tr > .page-gap-cut {
   gap: 3px;
   padding: 3px;
   border-radius: 9px;
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .table-properties-segment {
@@ -10830,7 +10841,7 @@ tr > .page-gap-cut {
   height: 96px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .table-margin-preview-cell {
@@ -10920,7 +10931,7 @@ tr > .page-gap-cut {
 }
 
 .comments-resolved-toggle:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .comments-resolved-caret {
@@ -11133,7 +11144,7 @@ tr > .page-gap-cut {
 
 .rb-shape-cell:hover {
   border-color: var(--accent);
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 /* Gallery variant keeps .shape-palette's anchored-card chrome but stacks grouped grids */
@@ -11185,7 +11196,7 @@ tr > .page-gap-cut {
 }
 
 .paste-chip-btn:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .paste-chip-caret {
@@ -11222,7 +11233,7 @@ tr > .page-gap-cut {
 }
 
 .paste-chip-item:hover {
-  background: var(--hover);
+  background: var(--hover-bg, var(--surface-2, var(--surface)));
 }
 
 .paste-chip-item.active {
@@ -11250,3 +11261,43 @@ tr > .page-gap-cut {
   font-size: 12px;
   cursor: pointer;
 }
+
+/* 复用 Office 菜单与表单尺度，保持可点击面积，窄窗口横向滚动工具栏。 */
+.hf-design-menu { min-width: 260px; }
+.hf-design-menu textarea { width: 100%; box-sizing: border-box; min-height: 72px; padding: 8px; color: var(--text); background: var(--surface); border: 1px solid var(--border); resize: vertical; }
+.hf-design-menu label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; }
+.hf-design-menu input[type=number] { width: 70px; }
+.hf-design-menu select { max-width: 170px; }
+.hf-line-icon { font-size: 26px; }
+.hf-ribbon-options > label { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+
+/* 页眉页脚模板沿用 Office 菜单颜色与焦点；菜单内容独立滚动，避免窄窗裁切。 */
+.hf-gallery-menu { width: min(410px, calc(100vw - 24px)); box-sizing: border-box; padding: 10px 0 0; }
+.hf-gallery-menu > .hf-menu-title { padding: 0 12px; }
+.hf-template-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; padding: 4px 12px 12px; max-height: min(430px,calc(100vh - 280px)); overflow-y: auto; }
+.hf-template-card { border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--text); padding: 7px; display: flex; flex-direction: column; gap: 6px; text-align: left; cursor: pointer; min-width: 0; font: inherit; font-size: 12px; }
+.hf-template-card:hover, .hf-template-card:focus-visible { border-color: var(--accent); background: var(--hover-bg, var(--surface-2, var(--surface))); outline: none; }
+.hf-template-paper { display: block; position: relative; height: 84px; width: 100%; background: var(--surface); border: 1px solid var(--border); box-sizing: border-box; overflow: hidden; }
+.hf-preview-content { position: absolute; top: 14px; left: 10px; right: 10px; font-size: 7px; line-height: 1.6; white-space: pre; }
+.hf-template-paper-footer .hf-preview-content { top: auto; bottom: 14px; }
+.hf-preview-body { display: flex; flex-direction: column; gap: 5px; position: absolute; top: 40px; left: 10px; right: 10px; opacity: .25; }
+.hf-preview-body i { height: 1px; background: var(--text-dim); width: 100%; }
+.hf-preview-body i:last-child { width: 65%; }
+.hf-template-paper-footer .hf-preview-body { top: 14px; }
+.hf-gallery-actions { display: flex; flex-direction: column; border-top: 1px solid var(--border); padding: 4px; }
+.hf-gallery-actions button, .hf-number-positions button, .hf-date-formats button, .hf-saved-templates button { border: 0; border-radius: 3px; padding: 8px; text-align: left; background: transparent; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.hf-gallery-actions button:hover, .hf-number-positions button:hover, .hf-number-positions button.on, .hf-date-formats button:hover, .hf-date-formats button.on, .hf-saved-templates button:hover { background: var(--hover-bg, var(--surface-2, var(--surface))); color: var(--accent); }
+.hf-number-menu { width: min(460px,calc(100vw - 24px)); box-sizing: border-box; padding: 0; }
+.hf-number-positions { display: flex; padding: 6px; border-bottom: 1px solid var(--border); gap: 4px; }
+.hf-number-positions button { flex: 1; text-align: center; }
+.hf-number-positions button.on { box-shadow: inset 0 -2px var(--accent); }
+.hf-number-styles { max-height: min(440px,calc(100vh - 290px)); overflow-y: auto; padding: 10px; }
+.hf-number-style-row { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; margin-bottom: 10px; }
+.hf-number-style-row .hf-template-paper { height: 70px; }
+.hf-date-menu { width: 330px; max-width: calc(100vw - 24px); box-sizing: border-box; }
+.hf-date-formats { display: flex; flex-direction: column; border: 1px solid var(--border); max-height: min(260px,calc(100vh - 380px)); overflow: auto; }
+.hf-design-menu .hf-field-checkbox { justify-content: flex-start; }
+.hf-design-menu input[type=checkbox] { width: auto; }
+.hf-saved-templates { max-height: 220px; overflow: auto; margin-bottom: 8px; }
+.hf-saved-templates > div { display: flex; }
+.hf-saved-templates > div > button:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; }

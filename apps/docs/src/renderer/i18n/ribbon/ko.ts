@@ -1,6 +1,20 @@
-import type { zh } from './zh'
+import { hfMenuEn } from '../../editor/hf-menu-strings'
+import type {
+ zh } from './zh'
 
 export const ko = {
+  ...hfMenuEn,
+  ribbonHfRemove: 'Remove header/footer',
+  ribbonHfLine: 'Header rule',
+  ribbonHfLineSpacing: 'Text spacing',
+  ribbonHfTotalPages: 'Total pages',
+  ribbonHfSwitch: 'Switch header/footer',
+  ribbonHfPrevious: 'Previous page',
+  ribbonHfNext: 'Next page',
+  ribbonHfNavigate: 'Navigation',
+  ribbonHfPosition: 'Position',
+  ribbonHfPlaceholder: '{label} 텍스트 입력',
+
   ribbonAiCreditNote: 'AI를 호출하며 크레딧이 소모됩니다',
   ribbonAiRewriteConfirm:
     '이 작업은 AI를 호출합니다. 크레딧이 소모되며 전체 내용이 다시 작성될 수 있습니다. 계속하시겠습니까? (확인 후 다시 묻지 않습니다)',
@@ -268,7 +282,6 @@ export const ko = {
   ribbonHeaderTip: '머리글 편집',
   ribbonFooter: '바닥글',
   ribbonFooterTip: '바닥글 편집',
-  ribbonHfPlaceholder: '{label} 텍스트 입력',
   ribbonPageNumber: '페이지 번호',
   ribbonPnTopLeft: '위쪽 왼쪽',
   ribbonPnTopCenter: '위쪽 가운데',

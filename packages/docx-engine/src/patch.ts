@@ -147,7 +147,7 @@ export interface SaveOptions {
    * reference injected into this section's sectPr (the section becomes independent,
    * earlier sections are unaffected).
    */
-  sectionHf?: Array<{ lastBlockIndex: number; kind: 'header' | 'footer'; hf: HeaderFooter }>
+  sectionHf?: Array<{ lastBlockIndex: number; kind: 'header' | 'footer'; view?: 'default' | 'first' | 'even'; hf: HeaderFooter }>
   /** "different odd & even pages": set/remove settings.xml w:evenAndOddHeaders */
   evenAndOddHeaders?: boolean
   /**
@@ -789,14 +789,13 @@ export async function saveDocx(
   // part; without one, create a part + inject the reference ----
   const sectionRefTags = new Map<number, string[]>()
   for (const edit of options.sectionHf ?? []) {
+    const view = edit.view ?? 'default'
     const block = parsed.blocks.find((b) => b.docxIndex === edit.lastBlockIndex)
     const sectPr =
       block?.originalXml?.match(/<w:sectPr[^>]*\/>|<w:sectPr[\s\S]*?<\/w:sectPr>/)?.[0] ?? ''
     const refs = sectPr.match(new RegExp(`<w:${edit.kind}Reference[^>]*/>`, 'g')) ?? []
-    const existing =
-      refs.find((r) => r.includes('w:type="default"')) ??
-      refs.find((r) => r.includes('w:type="odd"')) ??
-      refs.find((r) => !/w:type="/.test(r))
+    const existing = refs.find((r) => r.includes(`w:type="${view}"`)) ?? (view === 'default'
+      ? refs.find((r) => r.includes('w:type="odd"')) ?? refs.find((r) => !/w:type="/.test(r)) : undefined)
     const rId = existing ? /r:id="([^"]+)"/.exec(existing)?.[1] : undefined
     const target = rId ? relTargets.get(rId) : undefined
     if (target) {
@@ -820,7 +819,7 @@ export async function saveDocx(
         `<Override PartName="/word/${filename}" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.${edit.kind}+xml"/>`,
       )
       const tags = sectionRefTags.get(edit.lastBlockIndex) ?? []
-      tags.push(`<w:${edit.kind}Reference w:type="default" r:id="${newRId}"/>`)
+      tags.push(`<w:${edit.kind}Reference w:type="${view}" r:id="${newRId}"/>`)
       sectionRefTags.set(edit.lastBlockIndex, tags)
     }
   }
@@ -1513,10 +1512,10 @@ function headerFooterPartXml(
             (!pageEmitted && run.text.includes('#'))
           ) {
             run.text.split(TOTAL_PAGES_MARK).forEach((seg, k) => {
-              if (k > 0) runs += numPagesField
+              if (k > 0) runs += inlineRunsXml([{ ...run,text:'1',instrField:'NUMPAGES' }])
               if (seg.includes(PAGE_MARK)) {
                 seg.split(PAGE_MARK).forEach((piece, j) => {
-                  if (j > 0) runs += pageField
+                  if (j > 0) runs += inlineRunsXml([{ ...run,text:'1',instrField:'PAGE' }])
                   if (piece) runs += inlineRunsXml([{ ...run, text: piece }])
                 })
               } else if (!pageEmitted && seg.includes('#')) {
@@ -1558,7 +1557,7 @@ function headerFooterPartXml(
   // model) keep their original bytes; only the set of text paragraphs is replaced as a
   // whole at the position of the first text paragraph. The watermark child is kept
   // verbatim unless watermarkXml replaces or drops it.
-  if (originalXml) {
+  if (originalXml && !hf.replaceContent) {
     const open = new RegExp(`<${root}[^>]*>`).exec(originalXml)?.[0]
     const closeIdx = originalXml.lastIndexOf(`</${root}>`)
     if (open && closeIdx >= 0) {
