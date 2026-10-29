@@ -1,4 +1,6 @@
 import { aiPanelWidthAtPointer, AiHistoryButton, AiPanelSideButton } from '@genoffice/ui'
+import type { AiHistoryPatch } from '@genoffice/ui'
+import type { ChatMessage } from '@genoffice/project-store'
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import {
   AgentLoop,
@@ -260,6 +262,28 @@ interface ChatEntry {
   scope?: AiScopeQuoteData
 }
 
+function storedChatEntries(messages: readonly ChatMessage[]): ChatEntry[] {
+  return messages.map((message) => ({
+    role: message.role,
+    text: message.text,
+    tools: message.tools?.map((tool) => ({
+      name: tool.name,
+      summary: tool.summary,
+      isError: tool.isError,
+      output: tool.output?.slice(0, TOOL_OUTPUT_MAX_CHARS),
+    })),
+    attachments: message.attachments
+      ?.filter((attachment) => attachment.path)
+      .map((attachment) => ({
+        name: attachment.name,
+        path: attachment.path ?? '',
+        ext: attachment.ext ?? '',
+        sizeBytes: attachment.sizeBytes ?? 0,
+      })),
+    ...(message.scope ? { scope: message.scope } : {}),
+  }))
+}
+
 /** Empty deck → generation starters; deck with content → polish starters */
 const starterPrompts = (t: TFunc, deckEmpty: boolean): string[] =>
   deckEmpty
@@ -505,6 +529,13 @@ export function AiPanel({
   const stickToBottomRef = useRef(true)
   /** Current chat's projectId/chatId, set after resolve succeeds */
   const chatRefIds = useRef<{ projectId: string; chatId: string } | null>(null)
+  const tempChatIdRef = useRef(`unsaved-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  const startedUnsavedRef = useRef(!currentFilePath)
+  const rebindPendingRef = useRef(false)
+  const historyEpochRef = useRef(0)
+  const [historyReady, setHistoryReady] = useState(false)
+  const [activeChatId, setActiveChatId] = useState<string | null>(null)
+  const chatScope = () => ({ filePath: currentFilePath ?? null, tempChatId: tempChatIdRef.current })
 
   // The loop instance survives across renders; closures read refs for the latest state
   const slidesRef = useRef(slides)
@@ -583,37 +614,19 @@ export function AiPanel({
   useEffect(() => {
     const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
     if (!api) return
-    const tempChatId = `unsaved-${Date.now()}`
+    const epoch = ++historyEpochRef.current
     void api
-      .resolveChat({ filePath: currentFilePath ?? null, tempChatId })
+      .resolveChat(chatScope())
       .then((ids) => {
+        if (epoch !== historyEpochRef.current) return []
         chatRefIds.current = ids
+        setActiveChatId(ids.chatId)
+        setHistoryReady(true)
         return api.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
       })
       .then((msgs) => {
-        if (msgs.length === 0) return
-        setHistoricChat(
-          msgs.map((m) => ({
-            role: m.role,
-            text: m.text,
-            tools: m.tools?.map((t) => ({
-              name: t.name,
-              summary: t.summary,
-              isError: t.isError,
-              output: t.output ? t.output.slice(0, TOOL_OUTPUT_MAX_CHARS) : undefined,
-            })),
-            // stored metadata only: no thumbnail read for history, the chips render name/size
-            attachments: m.attachments
-              ?.filter((a) => a.path)
-              .map((a) => ({
-                name: a.name,
-                path: a.path ?? '',
-                ext: a.ext ?? '',
-                sizeBytes: a.sizeBytes ?? 0,
-              })),
-            ...(m.scope ? { scope: m.scope } : {}),
-          })),
-        )
+        if (epoch !== historyEpochRef.current || msgs.length === 0) return
+        setHistoricChat(storedChatEntries(msgs))
         // Restore model context: follow-ups after reopening a file continue the earlier conversation (only when the loop is idle with no history)
         loopRef.current?.restore(msgs.map((m) => ({ role: m.role, text: m.text })))
       })
@@ -625,9 +638,11 @@ export function AiPanel({
 
   /** After an unsaved draft lands and gets a real path, bind the unsaved-* history to that file (recoverable by path on reopen) */
   useEffect(() => {
-    const ids = chatRefIds.current
     const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
-    if (!api || !ids || !currentFilePath || !ids.chatId.startsWith('unsaved-')) return
+    const ids = chatRefIds.current
+    if (!api || !ids || !currentFilePath || !startedUnsavedRef.current || rebindPendingRef.current)
+      return
+    rebindPendingRef.current = true
     void api
       .rebindChat({
         projectId: ids.projectId,
@@ -635,12 +650,19 @@ export function AiPanel({
         newFilePath: currentFilePath,
       })
       .then((r) => {
-        if (r?.chatId) chatRefIds.current = r
+        if (r?.chatId) {
+          chatRefIds.current = r
+          setActiveChatId(r.chatId)
+          startedUnsavedRef.current = false
+        }
       })
       .catch(() => {
         /* Silent */
       })
-  }, [currentFilePath])
+      .finally(() => {
+        rebindPendingRef.current = false
+      })
+  }, [currentFilePath, historyReady])
 
   /** Persist one message (fails silently). tools include args/output (truncated by the store layer); attachments store metadata only. */
   const persistMessage = (
@@ -1926,7 +1948,7 @@ export function AiPanel({
       retry: true,
     })
 
-  const newChat = () => {
+  const clearChatView = () => {
     dismissClarify()
     qcAbortRef.current?.abort()
     loopRef.current?.reset()
@@ -1946,6 +1968,52 @@ export function AiPanel({
     sentAttachmentsRef.current = []
     readAttachmentPathsRef.current.clear()
     inputRef.current?.focus()
+  }
+
+  const switchHistory = async (chatId: string, select = true): Promise<void> => {
+    const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
+    if (
+      !api ||
+      busy ||
+      runStartingRef.current ||
+      loopRef.current?.busy ||
+      chatId === chatRefIds.current?.chatId
+    )
+      return
+    const epoch = ++historyEpochRef.current
+    const ids = select
+      ? await api.selectChatForFile({ ...chatScope(), chatId })
+      : { projectId: chatRefIds.current?.projectId ?? 'default', chatId }
+    const messages = await api.loadChat({ ...ids, limit: 200 })
+    if (epoch !== historyEpochRef.current) return
+    clearChatView()
+    chatRefIds.current = ids
+    setActiveChatId(chatId)
+    setHistoricChat(storedChatEntries(messages))
+    loopRef.current?.restore(
+      messages.map((message) => ({ role: message.role, text: message.text })),
+    )
+  }
+
+  const updateHistory = async (chatId: string, patch: AiHistoryPatch): Promise<void> => {
+    const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
+    if (!api || busy) return
+    const next = await api.updateChatForFile({ ...chatScope(), chatId, patch })
+    if (next.chatId !== chatRefIds.current?.chatId) await switchHistory(next.chatId, false)
+  }
+
+  const newChat = async (): Promise<void> => {
+    if (busy || runStartingRef.current || loopRef.current?.busy) return
+    const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
+    if (api && typeof api.createChat === 'function') {
+      const epoch = ++historyEpochRef.current
+      const ids = await api.createChat(chatScope())
+      if (epoch !== historyEpochRef.current) return
+      chatRefIds.current = ids
+      setActiveChatId(ids.chatId)
+      setHistoryReady(true)
+    }
+    clearChatView()
   }
 
   const copyMessage = (text: string, idx: number) => {
@@ -2079,22 +2147,18 @@ export function AiPanel({
           <AiHistoryButton
             locale={lang}
             entries={[...historicChat, ...chat]}
-            loadEntries={async () => {
-              const ids = chatRefIds.current
-              const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
-              if (!ids || !api) return [...historicChat, ...chat]
-              const messages = await api.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
-              return messages.map((message) => ({
-                role: message.role,
-                text: message.text,
-                tools: message.tools?.map((tool) => ({ name: tool.name, summary: tool.summary, isError: tool.isError })),
-              }))
-            }}
+            activeChatId={activeChatId}
+            disabled={busy}
+            loadSessions={() => window.projectApi.listChatsForFile(chatScope())}
+            onSelectSession={switchHistory}
+            onNewChat={newChat}
+            onUpdateSession={updateHistory}
           />
           {(chat.length > 0 || historicChat.length > 0) && (
             <button
               className="ai-header-btn"
-              onClick={newChat}
+              onClick={() => void newChat()}
+              disabled={busy}
               data-tip={t('aiNewChat')}
               aria-label={t('aiNewChat')}
             >

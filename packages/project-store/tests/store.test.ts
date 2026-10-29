@@ -539,6 +539,71 @@ describe('listChats', () => {
   })
 })
 
+describe('multi-session chats per file', () => {
+  let tmpDir: string
+  let store: ProjectStore
+
+  beforeEach(() => {
+    tmpDir = makeTempDir()
+    store = new ProjectStore(tmpDir)
+    store.ensureDefaultProject()
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('creates, selects and persists separate conversations for one file', () => {
+    const path = '/home/user/report.docx'
+    const first = store.resolveChatForFile(path)
+    store.appendChatMessage(first.projectId, first.chatId, { role: 'user', text: 'first' })
+    store.appendChatMessage(first.projectId, first.chatId, { role: 'assistant', text: 'answer 1' })
+    const second = store.createChatForFile(path)
+    store.appendChatMessage(second.projectId, second.chatId, { role: 'user', text: 'second' })
+    store.appendChatMessage(second.projectId, second.chatId, {
+      role: 'assistant',
+      text: 'answer 2',
+    })
+
+    expect(store.resolveChatForFile(path).chatId).toBe(second.chatId)
+    expect(store.listChatsForFile(path).map((chat) => chat.chatId)).toContain(first.chatId)
+    expect(store.listChatsForFile(path).map((chat) => chat.chatId)).toContain(second.chatId)
+
+    store.selectChatForFile(path, undefined, first.chatId)
+    expect(store.resolveChatForFile(path).chatId).toBe(first.chatId)
+    expect(store.loadChat(first.projectId, first.chatId).at(-1)?.text).toBe('answer 1')
+  })
+
+  it('binds the first registered unsaved session to the stable file hash on save', () => {
+    const draft = store.resolveChatForUnsaved('unsaved-registered')
+    store.appendChatMessage(draft.projectId, draft.chatId, { role: 'user', text: 'draft' })
+    const filePath = '/home/user/saved.docx'
+    const rebound = store.rebindChatToFile(draft.projectId, draft.chatId, filePath)
+    expect(rebound.chatId).toBe(ProjectStore.chatIdForFile(filePath))
+    expect(store.resolveChatForFile(filePath).chatId).toBe(rebound.chatId)
+    expect(store.loadChat(rebound.projectId, rebound.chatId).at(0)?.text).toBe('draft')
+  })
+
+  it('supports rename, pin, archive, delete and restore', () => {
+    const path = '/home/user/notes.docx'
+    const ids = store.resolveChatForFile(path)
+    store.appendChatMessage(ids.projectId, ids.chatId, { role: 'user', text: 'title source' })
+    store.updateChatForFile(path, undefined, ids.chatId, { title: 'Renamed', pinned: true })
+    let item = store.listChatsForFile(path).find((chat) => chat.chatId === ids.chatId)
+    expect(item?.title).toBe('Renamed')
+    expect(item?.pinned).toBe(true)
+    store.updateChatForFile(path, undefined, ids.chatId, { archived: true })
+    item = store.listChatsForFile(path).find((chat) => chat.chatId === ids.chatId)
+    expect(item?.archived).toBe(true)
+    store.updateChatForFile(path, undefined, ids.chatId, { deleted: true })
+    item = store.listChatsForFile(path).find((chat) => chat.chatId === ids.chatId)
+    expect(item?.deletedAt).toBeTruthy()
+    store.updateChatForFile(path, undefined, ids.chatId, { deleted: false })
+    item = store.listChatsForFile(path).find((chat) => chat.chatId === ids.chatId)
+    expect(item?.deletedAt).toBeUndefined()
+  })
+})
+
 // ────────────────────────────────────────────────────────────
 // 7. chatIdForFile
 // ────────────────────────────────────────────────────────────

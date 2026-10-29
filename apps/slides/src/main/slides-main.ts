@@ -207,7 +207,11 @@ import type {
   ShapeKey,
   SetEffectsPatch,
 } from '../shared/ipc'
-import { buildPrintDocumentHtml, printPageLandscape, printPageSizeMicrons } from '../shared/print-html'
+import {
+  buildPrintDocumentHtml,
+  printPageLandscape,
+  printPageSizeMicrons,
+} from '../shared/print-html'
 
 import { tm } from './i18n-main'
 import { tiffToPng } from './tiff-decode'
@@ -4230,18 +4234,25 @@ export function registerSlidesIpc(): void {
           win.show()
           win.focus()
         }
-        const result = await printWithSystemDialog(win.webContents, {
-              ...parsePrintJobSettings(op.job),
-              silent: false,
-              printBackground: true,
-              landscape: printPageLandscape({
-                layout: op.layout ?? 'full',
-                ratio: op.widthPx / op.heightPx,
-                ...(op.orientation ? { orientation: op.orientation } : {}),
-              }),
-              margins: { marginType: 'none' },
-              pageSize: printPageSizeMicrons({ layout: op.layout ?? 'full', ratio: op.widthPx / op.heightPx }),
-            }, owner)
+        const result = await printWithSystemDialog(
+          win.webContents,
+          {
+            ...parsePrintJobSettings(op.job),
+            silent: false,
+            printBackground: true,
+            landscape: printPageLandscape({
+              layout: op.layout ?? 'full',
+              ratio: op.widthPx / op.heightPx,
+              ...(op.orientation ? { orientation: op.orientation } : {}),
+            }),
+            margins: { marginType: 'none' },
+            pageSize: printPageSizeMicrons({
+              layout: op.layout ?? 'full',
+              ratio: op.widthPx / op.heightPx,
+            }),
+          },
+          owner,
+        )
         if (!result.success) {
           // Canceling is a normal completion, not a print failure: ok=false without an
           // error keeps the renderer's print dialog (and its chosen options) open.
@@ -4365,10 +4376,44 @@ export function registerProjectIpc(): void {
       const store = getSlidesProjectStore()
       store.ensureDefaultProject()
       if (!args.filePath) {
-        return { projectId: 'default', chatId: args.tempChatId ?? `unsaved-${Date.now()}` }
+        return store.resolveChatForUnsaved(args.tempChatId ?? `unsaved-${Date.now()}`)
       }
       return store.resolveChatForFile(args.filePath)
     },
+  )
+
+  ipcMain.handle(
+    'project:listChatsForFile',
+    (_event, args: { filePath: string | null; tempChatId?: string }) =>
+      getSlidesProjectStore().listChatsForFile(args.filePath, args.tempChatId),
+  )
+  ipcMain.handle(
+    'project:createChat',
+    (_event, args: { filePath: string | null; tempChatId?: string }) =>
+      getSlidesProjectStore().createChatForFile(args.filePath, args.tempChatId),
+  )
+  ipcMain.handle(
+    'project:selectChatForFile',
+    (_event, args: { filePath: string | null; tempChatId?: string; chatId: string }) =>
+      getSlidesProjectStore().selectChatForFile(args.filePath, args.tempChatId, args.chatId),
+  )
+  ipcMain.handle(
+    'project:updateChatForFile',
+    (
+      _event,
+      args: {
+        filePath: string | null
+        tempChatId?: string
+        chatId: string
+        patch: { title?: string | null; pinned?: boolean; archived?: boolean; deleted?: boolean }
+      },
+    ) =>
+      getSlidesProjectStore().updateChatForFile(
+        args.filePath,
+        args.tempChatId,
+        args.chatId,
+        args.patch,
+      ),
   )
 
   ipcMain.handle(

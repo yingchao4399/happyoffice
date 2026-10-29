@@ -1,4 +1,11 @@
-import { aiPanelWidthAtPointer, AiHistoryButton, AiPanelSideButton, type AiHistoryEntry } from '@genoffice/ui'
+import {
+  aiPanelWidthAtPointer,
+  AiHistoryButton,
+  AiPanelSideButton,
+  type AiHistoryEntry,
+  type AiHistorySession,
+  type AiHistoryPatch,
+} from '@genoffice/ui'
 import React, { useEffect, useRef, useState } from 'react'
 import { AiComposer, AiScopeQuote, AiTypingIndicator, type AiScopeQuoteData } from '@genoffice/ui'
 import { GensparkMark } from '../ribbon-icons'
@@ -215,6 +222,10 @@ export function AiChatPanel({
   chat,
   historicChat = [],
   loadHistoryEntries,
+  loadHistorySessions,
+  activeChatId,
+  onSelectHistory,
+  onUpdateHistory,
   attachments,
   attachNotice,
   onPickAttachments,
@@ -242,6 +253,10 @@ export function AiChatPanel({
   readonly chat: readonly AiChatMessage[]
   readonly historicChat?: readonly AiChatMessage[]
   readonly loadHistoryEntries?: (() => Promise<readonly AiHistoryEntry[]>) | undefined
+  readonly loadHistorySessions?: (() => Promise<readonly AiHistorySession[]>) | undefined
+  readonly activeChatId?: string | null | undefined
+  readonly onSelectHistory?: ((chatId: string) => Promise<void>) | undefined
+  readonly onUpdateHistory?: ((chatId: string, patch: AiHistoryPatch) => Promise<void>) | undefined
   /// Chat attachments (chips + 📎 button + drag onto the panel), same structure
   /// as the docs/slides AI panels.
   readonly attachments: readonly AttachmentMeta[]
@@ -265,7 +280,7 @@ export function AiChatPanel({
     retryIndex?: number,
   ) => void
   readonly onStop: () => void
-  readonly onNewChat: () => void
+  readonly onNewChat: () => void | Promise<void>
   readonly onUndo: (steps: number) => void
   /** A1 notation of the range this run is scoped to, or null when there is no
    *  scope — a resting single-cell selection carries no intent worth showing,
@@ -506,18 +521,29 @@ export function AiChatPanel({
       <header className="ai-panel-header">
         <span className="ai-panel-title">
           <GensparkMark size={22} />
-Friday
+          Friday
         </span>
         <div className="ai-panel-header-actions">
           <AiPanelSideButton
             lang={lang}
             onMove={(side) => window.desktopApi.setAiPanelPrefs({ side })}
           />
-          <AiHistoryButton locale={lang} entries={[...historicChat, ...chat]} {...(loadHistoryEntries ? { loadEntries: loadHistoryEntries } : {})} />
+          <AiHistoryButton
+            locale={lang}
+            entries={[...historicChat, ...chat]}
+            {...(loadHistoryEntries ? { loadEntries: loadHistoryEntries } : {})}
+            {...(loadHistorySessions ? { loadSessions: loadHistorySessions } : {})}
+            {...(activeChatId !== undefined ? { activeChatId } : {})}
+            {...(onSelectHistory ? { onSelectSession: onSelectHistory } : {})}
+            onNewChat={onNewChat}
+            {...(onUpdateHistory ? { onUpdateSession: onUpdateHistory } : {})}
+            disabled={aiBusy}
+          />
           {(chat.length > 0 || historicChat.length > 0) && (
             <button
               className="ai-header-btn"
-              onClick={onNewChat}
+              onClick={() => void onNewChat()}
+              disabled={aiBusy}
               data-tip={t('aiNewChat')}
               aria-label={t('aiNewChat')}
             >

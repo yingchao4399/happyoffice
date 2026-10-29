@@ -1,7 +1,11 @@
 import type { IFunctionInfo } from '@univerjs/engine-formula'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { platformShortcuts } from '@genoffice/i18n'
-import { OfficeFileMenu, officeFileText, type OfficeFileAction } from '@genoffice/ui/office-file-menu'
+import {
+  OfficeFileMenu,
+  officeFileText,
+  type OfficeFileAction,
+} from '@genoffice/ui/office-file-menu'
 import '@genoffice/ui/office-file-menu.css'
 import {
   Dropdown,
@@ -46,7 +50,7 @@ import type { ChartSeriesVisualState } from '@genoffice/xlsx-gateway/domain/char
 import type { ChangePlan } from '@genoffice/xlsx-gateway/domain/workbook.types'
 import type { AttachmentMeta } from '../shared/desktop-api'
 import { AiChatPanel, type AiChatMessage } from './ai/AiChatPanel'
-import type { AiHistoryEntry } from '@genoffice/ui'
+import type { AiHistoryEntry, AiHistoryPatch, AiHistorySession } from '@genoffice/ui'
 import { AiSelectionAsk } from './ai/AiSelectionAsk'
 import type { SelectionAskAnchor } from './ai/selection-ask'
 import {
@@ -175,6 +179,10 @@ interface ExcelShellProps {
   readonly chat: readonly AiChatMessage[]
   readonly historicChat?: readonly AiChatMessage[]
   readonly loadHistoryEntries?: (() => Promise<readonly AiHistoryEntry[]>) | undefined
+  readonly loadHistorySessions?: (() => Promise<readonly AiHistorySession[]>) | undefined
+  readonly activeChatId?: string | null | undefined
+  readonly onSelectHistory?: ((chatId: string) => Promise<void>) | undefined
+  readonly onUpdateHistory?: ((chatId: string, patch: AiHistoryPatch) => Promise<void>) | undefined
   /// Chat attachments (chips + 📎 button + drag-and-drop), same structure as the
   /// docs/slides AI panels.
   readonly attachments: readonly AttachmentMeta[]
@@ -193,7 +201,7 @@ interface ExcelShellProps {
     retryIndex?: number,
   ) => void
   readonly onStop: () => void
-  readonly onNewChat: () => void
+  readonly onNewChat: () => void | Promise<void>
   readonly onUndo: (steps?: number) => void
   /// A1 notation of the multi-cell selection the AI composer offers as this
   /// run's scope, or null when the resting single-cell selection carries none.
@@ -326,6 +334,10 @@ export function ExcelShell({
   chat,
   historicChat,
   loadHistoryEntries,
+  loadHistorySessions,
+  activeChatId,
+  onSelectHistory,
+  onUpdateHistory,
   attachments,
   attachNotice,
   onPickAttachments,
@@ -575,10 +587,27 @@ export function ExcelShell({
           aria-label="Workbook commands"
           onDoubleClick={collapse.onTabsDoubleClick}
         >
-          {window.fridayOffice && onFileAction && <div className="file-tab-wrap" ref={fileRef}>
-            <button className="ribbon-tab ribbon-tab-file" aria-expanded={fileOpen} onClick={() => setFileOpen(value => !value)}>{officeFileText(document.documentElement.lang).file}</button>
-            {fileOpen && <OfficeFileMenu lang={document.documentElement.lang} hasDocument={canSaveAs} busy={fileBusy === true} formats={['pdf', 'xps', 'md', 'txt', 'xlsx']} onAction={onFileAction} onClose={() => setFileOpen(false)} />}
-          </div>}
+          {window.fridayOffice && onFileAction && (
+            <div className="file-tab-wrap" ref={fileRef}>
+              <button
+                className="ribbon-tab ribbon-tab-file"
+                aria-expanded={fileOpen}
+                onClick={() => setFileOpen((value) => !value)}
+              >
+                {officeFileText(document.documentElement.lang).file}
+              </button>
+              {fileOpen && (
+                <OfficeFileMenu
+                  lang={document.documentElement.lang}
+                  hasDocument={canSaveAs}
+                  busy={fileBusy === true}
+                  formats={['pdf', 'xps', 'md', 'txt', 'xlsx']}
+                  onAction={onFileAction}
+                  onClose={() => setFileOpen(false)}
+                />
+              )}
+            </div>
+          )}
           <button
             type="button"
             className="qa-btn"
@@ -720,6 +749,10 @@ export function ExcelShell({
           chat={chat}
           {...(historicChat !== undefined ? { historicChat } : {})}
           {...(loadHistoryEntries ? { loadHistoryEntries } : {})}
+          {...(loadHistorySessions ? { loadHistorySessions } : {})}
+          activeChatId={activeChatId}
+          onSelectHistory={onSelectHistory}
+          onUpdateHistory={onUpdateHistory}
           attachments={attachments}
           attachNotice={attachNotice}
           onPickAttachments={onPickAttachments}

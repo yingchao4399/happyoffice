@@ -1,4 +1,5 @@
 import type { AiPanelPrefs } from '@genoffice/ui'
+import type { ProjectApi } from '@genoffice/project-store'
 import { contextBridge, ipcRenderer } from 'electron'
 import { installOfficeFileBridge } from '@genoffice/electron-utils/office-file-bridge'
 
@@ -112,14 +113,15 @@ const api: PdfApi = {
 
 // Shared project chat store (registered app-wide by the shell's main init):
 // AI PDF conversations persist per file, like Docs/Sheets
-const projectApi = {
-  resolveChat: (args: { filePath: string | null; tempChatId?: string }) =>
-    ipcRenderer.invoke('project:resolveChat', args),
-  appendChat: (args: unknown) => ipcRenderer.invoke('project:appendChat', args),
-  loadChat: (args: { projectId: string; chatId: string; limit?: number }) =>
-    ipcRenderer.invoke('project:loadChat', args),
-  rebindChat: (args: { projectId: string; tempChatId: string; newFilePath: string }) =>
-    ipcRenderer.invoke('project:rebindChat', args),
+const projectApi: ProjectApi = {
+  resolveChat: (args) => ipcRenderer.invoke('project:resolveChat', args),
+  appendChat: (args) => ipcRenderer.invoke('project:appendChat', args),
+  loadChat: (args) => ipcRenderer.invoke('project:loadChat', args),
+  listChatsForFile: (args) => ipcRenderer.invoke('project:listChatsForFile', args),
+  createChat: (args) => ipcRenderer.invoke('project:createChat', args),
+  selectChatForFile: (args) => ipcRenderer.invoke('project:selectChatForFile', args),
+  updateChatForFile: (args) => ipcRenderer.invoke('project:updateChatForFile', args),
+  rebindChat: (args) => ipcRenderer.invoke('project:rebindChat', args),
 }
 
 contextBridge.exposeInMainWorld('pdfApi', api)

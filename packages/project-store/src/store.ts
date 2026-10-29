@@ -15,7 +15,7 @@
  * - seq is maintained by the store layer: auto-incremented on each appendChatMessage
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   appendFileSync,
   existsSync,
@@ -230,6 +230,43 @@ export class ProjectStore {
     return index.chatIdByPath?.[filePath] ?? ProjectStore.chatIdForFile(filePath)
   }
 
+  private chatIdsForKey(index: ProjectIndex, key: string): string[] {
+    const primary =
+      index.chatIdByPath?.[key] ??
+      (key.startsWith('unsaved:') ? key.slice('unsaved:'.length) : ProjectStore.chatIdForFile(key))
+    return [...new Set([primary, ...(index.chatIdsByPath?.[key] ?? [])])]
+  }
+
+  private resolveChatGroup(
+    filePath: string | null,
+    tempChatId?: string,
+  ): {
+    projectId: string
+    chatId: string
+    key: string
+  } {
+    if (filePath) return { ...this.resolveChatForFile(filePath), key: filePath }
+    if (!tempChatId || !/^unsaved-[a-zA-Z0-9-]{1,100}$/.test(tempChatId)) {
+      throw new Error('An unsaved document requires a valid temporary chat id')
+    }
+    return { ...this.resolveChatForUnsaved(tempChatId), key: `unsaved:${tempChatId}` }
+  }
+
+  resolveChatForUnsaved(tempChatId: string): { projectId: string; chatId: string } {
+    this.ensureDefaultProject()
+    const key = `unsaved:${tempChatId}`
+    const index = this.readIndex()
+    if (!index.chatIdByPath?.[key]) {
+      index.chatIdByPath = { ...(index.chatIdByPath ?? {}), [key]: tempChatId }
+      index.chatMetaById = {
+        ...(index.chatMetaById ?? {}),
+        [tempChatId]: { createdAt: nowIso() },
+      }
+      this.writeIndex(index)
+    }
+    return { projectId: 'default', chatId: index.activeChatIdByPath?.[key] ?? tempChatId }
+  }
+
   /**
    * Resolves { projectId, chatId } by file path (the core of the resolveChat IPC).
    * The chatId is registered into chatIdByPath on first resolve; from then on,
@@ -240,11 +277,126 @@ export class ProjectStore {
     const projectId = this.resolveProjectForFile(filePath)
     const index = this.readIndex()
     const mapped = index.chatIdByPath?.[filePath]
-    if (mapped) return { projectId, chatId: mapped }
+    if (mapped) {
+      const active = index.activeChatIdByPath?.[filePath]
+      return {
+        projectId,
+        chatId: active && this.chatIdsForKey(index, filePath).includes(active) ? active : mapped,
+      }
+    }
     const chatId = ProjectStore.chatIdForFile(filePath)
     index.chatIdByPath = { ...(index.chatIdByPath ?? {}), [filePath]: chatId }
     this.writeIndex(index)
     return { projectId, chatId }
+  }
+
+  listChatsForFile(filePath: string | null, tempChatId?: string): ChatMeta[] {
+    const { projectId, key } = this.resolveChatGroup(filePath, tempChatId)
+    const index = this.readIndex()
+    const persisted = new Map(this.listChats(projectId).map((chat) => [chat.chatId, chat]))
+    return this.chatIdsForKey(index, key)
+      .map((chatId) => {
+        const meta = index.chatMetaById?.[chatId]
+        const messages = this.loadChat(projectId, chatId, 200)
+        const firstUser = messages.find((message) => message.role === 'user')
+        const title = meta?.title ?? firstUser?.text.trim().split('\n')[0]?.slice(0, 80)
+        return {
+          chatId,
+          updatedAt: persisted.get(chatId)?.updatedAt ?? meta?.createdAt ?? nowIso(),
+          approxCount: persisted.get(chatId)?.approxCount ?? messages.length,
+          ...(title ? { title } : {}),
+          ...(meta?.pinned ? { pinned: true } : {}),
+          ...(meta?.archived ? { archived: true } : {}),
+          ...(meta?.deletedAt ? { deletedAt: meta.deletedAt } : {}),
+        }
+      })
+      .sort(
+        (a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.updatedAt.localeCompare(a.updatedAt),
+      )
+  }
+
+  createChatForFile(
+    filePath: string | null,
+    tempChatId?: string,
+  ): { projectId: string; chatId: string } {
+    const { projectId, key } = this.resolveChatGroup(filePath, tempChatId)
+    const index = this.readIndex()
+    const chatId = `chat-${randomUUID()}`
+    index.chatIdsByPath = {
+      ...(index.chatIdsByPath ?? {}),
+      [key]: [...(index.chatIdsByPath?.[key] ?? []), chatId],
+    }
+    index.activeChatIdByPath = { ...(index.activeChatIdByPath ?? {}), [key]: chatId }
+    index.chatMetaById = { ...(index.chatMetaById ?? {}), [chatId]: { createdAt: nowIso() } }
+    this.writeIndex(index)
+    return { projectId, chatId }
+  }
+
+  selectChatForFile(
+    filePath: string | null,
+    tempChatId: string | undefined,
+    chatId: string,
+  ): {
+    projectId: string
+    chatId: string
+  } {
+    const { projectId, key } = this.resolveChatGroup(filePath, tempChatId)
+    const index = this.readIndex()
+    if (!this.chatIdsForKey(index, key).includes(chatId))
+      throw new Error('Chat does not belong to this file')
+    if (index.chatMetaById?.[chatId]?.deletedAt)
+      throw new Error('Restore this chat before selecting it')
+    index.activeChatIdByPath = { ...(index.activeChatIdByPath ?? {}), [key]: chatId }
+    if (index.chatMetaById?.[chatId]?.archived) index.chatMetaById[chatId].archived = false
+    this.writeIndex(index)
+    return { projectId, chatId }
+  }
+
+  updateChatForFile(
+    filePath: string | null,
+    tempChatId: string | undefined,
+    chatId: string,
+    patch: { title?: string | null; pinned?: boolean; archived?: boolean; deleted?: boolean },
+  ): { projectId: string; chatId: string } {
+    const { projectId, key } = this.resolveChatGroup(filePath, tempChatId)
+    const index = this.readIndex()
+    const chatIds = this.chatIdsForKey(index, key)
+    if (!chatIds.includes(chatId)) throw new Error('Chat does not belong to this file')
+    const meta = { createdAt: nowIso(), ...index.chatMetaById?.[chatId] }
+    if ('title' in patch) {
+      const title = patch.title?.trim().slice(0, 80)
+      if (title) meta.title = title
+      else delete meta.title
+    }
+    if (patch.pinned !== undefined) meta.pinned = patch.pinned
+    if (patch.archived !== undefined) meta.archived = patch.archived
+    if (patch.deleted !== undefined) {
+      if (patch.deleted) meta.deletedAt = nowIso()
+      else delete meta.deletedAt
+    }
+    index.chatMetaById = { ...(index.chatMetaById ?? {}), [chatId]: meta }
+    const active = index.activeChatIdByPath?.[key] ?? index.chatIdByPath?.[key] ?? chatIds[0]!
+    let nextActive = active
+    if (active === chatId && (meta.archived || meta.deletedAt)) {
+      nextActive =
+        chatIds.find(
+          (id) =>
+            id !== chatId &&
+            !index.chatMetaById?.[id]?.archived &&
+            !index.chatMetaById?.[id]?.deletedAt,
+        ) ?? ''
+      if (!nextActive) {
+        nextActive = `chat-${randomUUID()}`
+        index.chatIdsByPath = {
+          ...(index.chatIdsByPath ?? {}),
+          [key]: [...(index.chatIdsByPath?.[key] ?? []), nextActive],
+        }
+        index.chatMetaById[nextActive] = { createdAt: nowIso() }
+      }
+    }
+    index.activeChatIdByPath = { ...(index.activeChatIdByPath ?? {}), [key]: nextActive }
+    this.writeIndex(index)
+    return { projectId, chatId: nextActive }
   }
 
   /**
@@ -270,6 +422,14 @@ export class ProjectStore {
     const chatId = index.chatIdByPath?.[oldPath] ?? ProjectStore.chatIdForFile(oldPath)
     if (index.chatIdByPath?.[oldPath] !== undefined) delete index.chatIdByPath[oldPath]
     index.chatIdByPath = { ...(index.chatIdByPath ?? {}), [newPath]: chatId }
+    if (index.chatIdsByPath?.[oldPath]) {
+      index.chatIdsByPath[newPath] = index.chatIdsByPath[oldPath]
+      delete index.chatIdsByPath[oldPath]
+    }
+    if (index.activeChatIdByPath?.[oldPath]) {
+      index.activeChatIdByPath[newPath] = index.activeChatIdByPath[oldPath]
+      delete index.activeChatIdByPath[oldPath]
+    }
     this.writeIndex(index)
   }
 
@@ -479,6 +639,44 @@ export class ProjectStore {
     tempChatId: string,
     filePath: string,
   ): { projectId: string; chatId: string } {
+    const before = this.readIndex()
+    const unsavedKey = Object.keys(before.chatIdByPath ?? {}).find(
+      (key) => key.startsWith('unsaved:') && this.chatIdsForKey(before, key).includes(tempChatId),
+    )
+    if (unsavedKey) {
+      const projectId = this.resolveProjectForFile(filePath)
+      const index = this.readIndex()
+      const sourceIds = this.chatIdsForKey(index, unsavedKey)
+      const existingPrimary = index.chatIdByPath?.[filePath]
+      const sourcePrimary = index.chatIdByPath?.[unsavedKey] ?? sourceIds[0]!
+      const primary = existingPrimary ?? ProjectStore.chatIdForFile(filePath)
+      const allIds = [
+        primary,
+        ...(index.chatIdsByPath?.[filePath] ?? []),
+        ...sourceIds.map((id) => (id === sourcePrimary && !existingPrimary ? primary : id)),
+      ]
+      index.chatIdByPath = { ...(index.chatIdByPath ?? {}), [filePath]: primary }
+      index.chatIdsByPath = {
+        ...(index.chatIdsByPath ?? {}),
+        [filePath]: allIds.filter((id) => id !== primary),
+      }
+      index.activeChatIdByPath = {
+        ...(index.activeChatIdByPath ?? {}),
+        [filePath]: existingPrimary ? sourcePrimary : primary,
+      }
+      delete index.chatIdByPath[unsavedKey]
+      delete index.chatIdsByPath[unsavedKey]
+      delete index.activeChatIdByPath[unsavedKey]
+      this.writeIndex(index)
+      for (const id of sourceIds) {
+        const targetId = id === sourcePrimary && !existingPrimary ? primary : id
+        this.renameOrMergeChat(tempProjectId, id, projectId, targetId)
+      }
+      return {
+        projectId,
+        chatId: existingPrimary ? sourcePrimary : primary,
+      }
+    }
     const { projectId, chatId } = this.resolveChatForFile(filePath)
     this.renameOrMergeChat(tempProjectId, tempChatId, projectId, chatId)
     return { projectId, chatId }
@@ -671,26 +869,10 @@ export class ProjectStore {
     targetProj.updatedAt = nowIso()
     this.writeProject(targetProj)
 
-    // 4. Move the corresponding chat's JSONL (materialize buffered opening messages first)
-    const chatId = this.chatIdForPath(filePath)
-    this.flushPending(fromProjectId, chatId)
-    const srcChatPath = this.chatPath(fromProjectId, chatId)
-    const dstChatPath = this.chatPath(targetProjectId, chatId)
-    try {
-      if (existsSync(srcChatPath)) {
-        ensureDir(this.chatsDir(targetProjectId))
-        renameSync(srcChatPath, dstChatPath)
-      }
-    } catch (err) {
-      console.warn('[project-store] moveFileToProject chat rename failed:', err)
+    // All sessions associated with the file move together.
+    for (const chatId of this.chatIdsForKey(index, filePath)) {
+      this.renameOrMergeChat(fromProjectId, chatId, targetProjectId, chatId)
     }
-
-    // 5. Migrate the seq counter cache
-    const oldKey = this.seqKey(fromProjectId, chatId)
-    const newKey = this.seqKey(targetProjectId, chatId)
-    const cur = this.seqCounters.get(oldKey)
-    this.seqCounters.delete(oldKey)
-    if (cur !== undefined) this.seqCounters.set(newKey, cur)
   }
 
   /**
@@ -704,8 +886,7 @@ export class ProjectStore {
     const chatToFile = new Map<string, string>()
     for (const [filePath, pid] of Object.entries(index.fileMap)) {
       if (pid === projectId) {
-        const chatId = index.chatIdByPath?.[filePath] ?? ProjectStore.chatIdForFile(filePath)
-        chatToFile.set(chatId, filePath)
+        for (const chatId of this.chatIdsForKey(index, filePath)) chatToFile.set(chatId, filePath)
       }
     }
 

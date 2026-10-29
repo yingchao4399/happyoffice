@@ -2201,7 +2201,10 @@ type DocxSource = {
 }
 type PreparedDocxSource = { ok: true; value: DocxSource } | { ok: false; error: unknown }
 /** 视图启动与磁盘/媒体读取并行；密码和恢复确认仍在正式消费打开请求时进行。 */
-const pendingWindowSources = new Map<number, { path: string; promise: Promise<PreparedDocxSource> }>()
+const pendingWindowSources = new Map<
+  number,
+  { path: string; promise: Promise<PreparedDocxSource> }
+>()
 /** webContents ids that should open as a new blank doc instead of the start screen */
 const pendingNewBlankIds = new Set<number>()
 
@@ -2615,9 +2618,10 @@ async function prepareDocxSource(filePath: string, wcId: number): Promise<DocxSo
   const startedAt = performance.now()
   const { size, mtimeMs } = await stat(filePath)
   const lazy = await openLazyDocx(filePath, wcId)
-  const original = (lazy?.bytes.length ?? size) > MAX_OPEN_BYTES
-    ? null
-    : lazy?.bytes ?? (await readFile(filePath))
+  const original =
+    (lazy?.bytes.length ?? size) > MAX_OPEN_BYTES
+      ? null
+      : (lazy?.bytes ?? (await readFile(filePath)))
   performance.measure('office.docs.read-source', { start: startedAt, end: performance.now() })
   return { size, mtimeMs, lazy, original }
 }
@@ -2635,10 +2639,15 @@ async function loadDocx(
   const prepared = pendingSource?.path === filePath ? await pendingSource.promise : null
   if (prepared && !prepared.ok) throw prepared.error
   const current = prepared?.ok ? await stat(filePath) : null
-  const unchanged = prepared?.ok && current?.size === prepared.value.size && current.mtimeMs === prepared.value.mtimeMs
-  const { size, lazy, original: preparedOriginal } = unchanged
-    ? prepared.value
-    : await prepareDocxSource(filePath, wcId)
+  const unchanged =
+    prepared?.ok &&
+    current?.size === prepared.value.size &&
+    current.mtimeMs === prepared.value.mtimeMs
+  const {
+    size,
+    lazy,
+    original: preparedOriginal,
+  } = unchanged ? prepared.value : await prepareDocxSource(filePath, wcId)
   if ((lazy?.bytes.length ?? size) > MAX_OPEN_BYTES) {
     const mb = MAX_OPEN_BYTES / 1024 / 1024
     await showOpenError(wcId, `${basename(filePath)}: ${tm('errTooLarge', { mb })}`)
@@ -2664,7 +2673,10 @@ async function loadDocx(
   const hash = lazy?.hash ?? sha256Hex(original)
   const archiveStartedAt = performance.now()
   await archiveOriginal(filePath, hash, size)
-  performance.measure('office.docs.archive-original', { start: archiveStartedAt, end: performance.now() })
+  performance.measure('office.docs.archive-original', {
+    start: archiveStartedAt,
+    end: performance.now(),
+  })
   const recovery = await maybeRecoverDocBytes(filePath, plainBytes)
   let bytes = recovery.bytes
   let recovered = recovery.recovered
@@ -3172,24 +3184,67 @@ export function registerProjectIpc(): void {
   if (projectIpcRegistered) return
   projectIpcRegistered = true
 
+  const chatFilePath = (
+    senderId: number,
+    args: { filePath: string | null; sessionId?: string },
+  ): string | null =>
+    args.filePath ??
+    (args.sessionId && sessionPathResolver ? sessionPathResolver(senderId, args.sessionId) : null)
+
   /** Resolve projectId + chatId from a file path (sheets without a path resolves via sessionId) */
   ipcMain.handle(
     'project:resolveChat',
     (event, args: { filePath: string | null; tempChatId?: string; sessionId?: string }) => {
       const store = getProjectStore()
       store.ensureDefaultProject()
-      let resolvedPath = args.filePath
-      if (!resolvedPath && args.sessionId && sessionPathResolver) {
-        resolvedPath = sessionPathResolver(event.sender.id, args.sessionId)
-      }
+      const resolvedPath = chatFilePath(event.sender.id, args)
       if (!resolvedPath) {
-        return {
-          projectId: 'default',
-          chatId: args.tempChatId ?? `unsaved-${Date.now()}`,
-        }
+        return store.resolveChatForUnsaved(args.tempChatId ?? `unsaved-${Date.now()}`)
       }
       return store.resolveChatForFile(resolvedPath)
     },
+  )
+
+  ipcMain.handle(
+    'project:listChatsForFile',
+    (event, args: { filePath: string | null; sessionId?: string; tempChatId?: string }) =>
+      getProjectStore().listChatsForFile(chatFilePath(event.sender.id, args), args.tempChatId),
+  )
+  ipcMain.handle(
+    'project:createChat',
+    (event, args: { filePath: string | null; sessionId?: string; tempChatId?: string }) =>
+      getProjectStore().createChatForFile(chatFilePath(event.sender.id, args), args.tempChatId),
+  )
+  ipcMain.handle(
+    'project:selectChatForFile',
+    (
+      event,
+      args: { filePath: string | null; sessionId?: string; tempChatId?: string; chatId: string },
+    ) =>
+      getProjectStore().selectChatForFile(
+        chatFilePath(event.sender.id, args),
+        args.tempChatId,
+        args.chatId,
+      ),
+  )
+  ipcMain.handle(
+    'project:updateChatForFile',
+    (
+      event,
+      args: {
+        filePath: string | null
+        sessionId?: string
+        tempChatId?: string
+        chatId: string
+        patch: { title?: string | null; pinned?: boolean; archived?: boolean; deleted?: boolean }
+      },
+    ) =>
+      getProjectStore().updateChatForFile(
+        chatFilePath(event.sender.id, args),
+        args.tempChatId,
+        args.chatId,
+        args.patch,
+      ),
   )
 
   /** Append a message */
@@ -3919,10 +3974,22 @@ export function registerDocsIpc(): void {
     // Resolves when the system dialog is dismissed; the print dialog stays open on cancel
     // (ok=false without error) and surfaces real failures.
     try {
-      if (scale !== undefined && (!Number.isFinite(scale) || scale < 0.1 || scale > 2)) throw new Error('INVALID_PRINT_SETTINGS')
-      const result = await printWithSystemDialog(event.sender, { margins: { marginType: 'none' }, ...printScale(scale), ...parsePrintJobSettings(job) })
-      return { ok: result.success, ...(result.failureReason && !/cancel/i.test(result.failureReason) ? { error: result.failureReason } : {}) }
-    } catch (error) { return { ok: false, error: error instanceof Error ? error.message : 'WINDOWS_PRINT_FAILED' } }
+      if (scale !== undefined && (!Number.isFinite(scale) || scale < 0.1 || scale > 2))
+        throw new Error('INVALID_PRINT_SETTINGS')
+      const result = await printWithSystemDialog(event.sender, {
+        margins: { marginType: 'none' },
+        ...printScale(scale),
+        ...parsePrintJobSettings(job),
+      })
+      return {
+        ok: result.success,
+        ...(result.failureReason && !/cancel/i.test(result.failureReason)
+          ? { error: result.failureReason }
+          : {}),
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'WINDOWS_PRINT_FAILED' }
+    }
   })
 
   ipcMain.handle(

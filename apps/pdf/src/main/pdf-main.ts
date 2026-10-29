@@ -31,6 +31,7 @@ import {
 } from '@genoffice/electron-utils'
 import { createI18n, getUiLang } from '@genoffice/i18n'
 import { generateImageTool } from '@genoffice/ai-search'
+import { ProjectStore } from '@genoffice/project-store'
 import { PDF_CHANNELS } from '../shared/ipc'
 import type {
   ExportImagesRequest,
@@ -862,20 +863,48 @@ function registerPdfIpc(): void {
 
   ipcMain.handle(PDF_CHANNELS.consumePending, (e) => openPathByWc.get(e.sender.id) ?? null)
 
-  ipcMain.handle(PDF_CHANNELS.printFile, async (event, path: unknown, pages: unknown, job: unknown) => {
-    if (typeof path !== 'string' || !allowedByWc.get(event.sender.id)?.has(path)) return { ok: false, error: 'pdf: path not granted to this view' }
-    if (process.platform !== 'win32') return { ok: false, unavailable: true }
-    try {
-      const settings = parsePrintJobSettings(job)
-      if (pages !== undefined && (!Array.isArray(pages) || pages.length === 0 || pages.length > 100000 || pages.some(page => !Number.isInteger(page) || page < 1 || page > 100000))) throw new Error('INVALID_PRINT_SETTINGS')
-      const targets = pages as number[] | undefined
-      const result = await printPdfBytesWithSystemDialog(await readFile(path), {
-        ...settings,
-        ...(targets ? { pageRanges: [...new Set(targets)].sort((a, b) => a - b).map(page => ({ from: page - 1, to: page - 1 })) } : {}),
-      }, BrowserWindow.fromWebContents(event.sender))
-      return { ok: result.success, ...(result.failureReason && !/cancel/i.test(result.failureReason) ? { error: result.failureReason } : {}) }
-    } catch (error) { return { ok: false, error: error instanceof Error ? error.message : 'WINDOWS_PRINT_FAILED' } }
-  })
+  ipcMain.handle(
+    PDF_CHANNELS.printFile,
+    async (event, path: unknown, pages: unknown, job: unknown) => {
+      if (typeof path !== 'string' || !allowedByWc.get(event.sender.id)?.has(path))
+        return { ok: false, error: 'pdf: path not granted to this view' }
+      if (process.platform !== 'win32') return { ok: false, unavailable: true }
+      try {
+        const settings = parsePrintJobSettings(job)
+        if (
+          pages !== undefined &&
+          (!Array.isArray(pages) ||
+            pages.length === 0 ||
+            pages.length > 100000 ||
+            pages.some((page) => !Number.isInteger(page) || page < 1 || page > 100000))
+        )
+          throw new Error('INVALID_PRINT_SETTINGS')
+        const targets = pages as number[] | undefined
+        const result = await printPdfBytesWithSystemDialog(
+          await readFile(path),
+          {
+            ...settings,
+            ...(targets
+              ? {
+                  pageRanges: [...new Set(targets)]
+                    .sort((a, b) => a - b)
+                    .map((page) => ({ from: page - 1, to: page - 1 })),
+                }
+              : {}),
+          },
+          BrowserWindow.fromWebContents(event.sender),
+        )
+        return {
+          ok: result.success,
+          ...(result.failureReason && !/cancel/i.test(result.failureReason)
+            ? { error: result.failureReason }
+            : {}),
+        }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : 'WINDOWS_PRINT_FAILED' }
+      }
+    },
+  )
 
   ipcMain.handle(PDF_CHANNELS.getUsername, () => {
     try {
@@ -1069,8 +1098,11 @@ function registerPdfIpc(): void {
     const controller = new AbortController()
     const destroyed = () => controller.abort()
     e.sender.once('destroyed', destroyed)
-    try { return await ocrPagePng(png, controller.signal) }
-    finally { e.sender.removeListener('destroyed', destroyed) }
+    try {
+      return await ocrPagePng(png, controller.signal)
+    } finally {
+      e.sender.removeListener('destroyed', destroyed)
+    }
   })
 
   ipcMain.handle(
@@ -1570,6 +1602,78 @@ export function createPdfView(openPath?: string | null): WebContentsView {
   return view
 }
 
+let pdfProjectStore: ProjectStore | null = null
+
+function registerPdfProjectIpc(): void {
+  const store = pdfProjectStore ?? (pdfProjectStore = new ProjectStore(app.getPath('userData')))
+  store.ensureDefaultProject()
+  ipcMain.handle(
+    'project:resolveChat',
+    (_event, args: { filePath: string | null; tempChatId?: string }) =>
+      args.filePath
+        ? store.resolveChatForFile(args.filePath)
+        : store.resolveChatForUnsaved(args.tempChatId ?? `unsaved-${Date.now()}`),
+  )
+  ipcMain.handle(
+    'project:listChatsForFile',
+    (_event, args: { filePath: string | null; tempChatId?: string }) =>
+      store.listChatsForFile(args.filePath, args.tempChatId),
+  )
+  ipcMain.handle(
+    'project:createChat',
+    (_event, args: { filePath: string | null; tempChatId?: string }) =>
+      store.createChatForFile(args.filePath, args.tempChatId),
+  )
+  ipcMain.handle(
+    'project:selectChatForFile',
+    (_event, args: { filePath: string | null; tempChatId?: string; chatId: string }) =>
+      store.selectChatForFile(args.filePath, args.tempChatId, args.chatId),
+  )
+  ipcMain.handle(
+    'project:updateChatForFile',
+    (
+      _event,
+      args: {
+        filePath: string | null
+        tempChatId?: string
+        chatId: string
+        patch: { title?: string | null; pinned?: boolean; archived?: boolean; deleted?: boolean }
+      },
+    ) => store.updateChatForFile(args.filePath, args.tempChatId, args.chatId, args.patch),
+  )
+  ipcMain.handle(
+    'project:appendChat',
+    (
+      _event,
+      args: {
+        projectId: string
+        chatId: string
+        role: 'user' | 'assistant'
+        text: string
+        tools?: Parameters<ProjectStore['appendChatMessage']>[2]['tools']
+        scope?: Parameters<ProjectStore['appendChatMessage']>[2]['scope']
+      },
+    ) => {
+      store.appendChatMessage(args.projectId, args.chatId, {
+        role: args.role,
+        text: args.text,
+        ...(args.tools ? { tools: args.tools } : {}),
+        ...(args.scope ? { scope: args.scope } : {}),
+      })
+    },
+  )
+  ipcMain.handle(
+    'project:loadChat',
+    (_event, args: { projectId: string; chatId: string; limit?: number }) =>
+      store.loadChat(args.projectId, args.chatId, args.limit ?? 200),
+  )
+  ipcMain.handle(
+    'project:rebindChat',
+    (_event, args: { projectId: string; tempChatId: string; newFilePath: string }) =>
+      store.rebindChatToFile(args.projectId, args.tempChatId, args.newFilePath),
+  )
+}
+
 /** Standalone window mode: `npm run dev -w @genoffice/pdf`, pdf path passed via argv */
 export function startPdfStandalone(): void {
   registerRendererScheme()
@@ -1584,6 +1688,7 @@ export function startPdfStandalone(): void {
   void app.whenReady().then(() => {
     installRendererProtocol({ pdf: join(__dirname, '../renderer') })
     registerPdfIpc()
+    registerPdfProjectIpc()
     const win = new BrowserWindow({
       width: 1200,
       height: 850,

@@ -468,6 +468,10 @@ const projectApi: ProjectApi = {
   resolveChat: (args) => ipcRenderer.invoke('project:resolveChat', args),
   appendChat: (args) => ipcRenderer.invoke('project:appendChat', args),
   loadChat: (args) => ipcRenderer.invoke('project:loadChat', args),
+  listChatsForFile: (args) => ipcRenderer.invoke('project:listChatsForFile', args),
+  createChat: (args) => ipcRenderer.invoke('project:createChat', args),
+  selectChatForFile: (args) => ipcRenderer.invoke('project:selectChatForFile', args),
+  updateChatForFile: (args) => ipcRenderer.invoke('project:updateChatForFile', args),
   rebindChat: (args) => ipcRenderer.invoke('project:rebindChat', args),
 }
 contextBridge.exposeInMainWorld('projectApi', projectApi)

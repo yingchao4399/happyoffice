@@ -52,6 +52,28 @@ export interface ResolveChatResult {
   chatId: string
 }
 
+export interface FileChatArgs {
+  /** Absolute path of the open file; null for an unsaved document. */
+  filePath: string | null
+  /** Sheets mode: the main process resolves the path from its workbook session. */
+  sessionId?: string
+  /** Temporary chat id used when no file path exists. */
+  tempChatId?: string
+}
+
+export interface SelectChatForFileArgs extends FileChatArgs {
+  chatId: string
+}
+
+export interface UpdateChatForFileArgs extends SelectChatForFileArgs {
+  patch: {
+    title?: string | null
+    pinned?: boolean
+    archived?: boolean
+    deleted?: boolean
+  }
+}
+
 export interface RebindChatArgs {
   projectId: string
   tempChatId: string
@@ -74,6 +96,14 @@ export interface ProjectApi {
   appendChat(args: AppendChatArgs): Promise<void>
   /** Reads the most recent `limit` messages */
   loadChat(args: LoadChatArgs): Promise<ChatMessage[]>
+  /** Lists the persisted sessions belonging to one file, newest first. */
+  listChatsForFile(args: FileChatArgs): Promise<ChatMeta[]>
+  /** Creates and activates a separate session for one file or unsaved document. */
+  createChat(args: FileChatArgs): Promise<ResolveChatResult>
+  /** Selects a persisted session for one file so it resumes on the next open. */
+  selectChatForFile(args: SelectChatForFileArgs): Promise<ResolveChatResult>
+  /** Renames, pins, archives, deletes or restores a session without removing its messages. */
+  updateChatForFile(args: UpdateChatForFileArgs): Promise<ResolveChatResult>
   /** Renames the JSONL file (called after the file first hits disk); returns the new projectId/chatId */
   rebindChat(args: RebindChatArgs): Promise<ResolveChatResult>
 }

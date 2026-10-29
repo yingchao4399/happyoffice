@@ -57,8 +57,17 @@ import {
 } from './plan-operations'
 import { isNumericIdentifierText } from './cell-warning'
 import { consumePendingUndoCarry, undoStackDepth } from './undo-carry'
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { useAutoSavePref, type AiScopeQuoteData } from '@genoffice/ui'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
+import { useAutoSavePref, type AiScopeQuoteData, type AiHistoryPatch } from '@genoffice/ui'
+import type { ChatMessage } from '@genoffice/project-store'
 
 import {
   CellValueType,
@@ -379,7 +388,12 @@ import { planStillMatches } from './lazy-plan'
 import { lastSurvivingScreenLine, netAxisDelta, screenToFile } from './view-transform'
 import { selectionFormatEquals, toSelectionFormat, type SelectionFormat } from './selection-format'
 import { ExcelShell } from './ExcelShell'
-import { OfficeOptionsDialog, officeExportStatus, officeFileText, type OfficeFileAction } from '@genoffice/ui/office-file-menu'
+import {
+  OfficeOptionsDialog,
+  officeExportStatus,
+  officeFileText,
+  type OfficeFileAction,
+} from '@genoffice/ui/office-file-menu'
 import '@genoffice/ui/office-file-menu.css'
 import { RecoveryDialog } from './RecoveryDialog'
 import { ToastHost } from './toast'
@@ -451,6 +465,33 @@ function dateTextKind(value: string): 'date-like' | 'text' {
   if (dateTextKinds.size >= 50_000) dateTextKinds.clear()
   dateTextKinds.set(value, kind)
   return kind
+}
+
+function storedSheetChat(messages: readonly ChatMessage[]): AiChatMessage[] {
+  return messages.map((message) => ({
+    role: message.role,
+    text: message.text,
+    tools:
+      message.tools?.map((tool) => ({
+        summary: tool.summary,
+        isError: !!tool.isError,
+        ...(tool.name ? { name: tool.name } : {}),
+        ...(tool.output ? { output: tool.output.slice(0, 2000) } : {}),
+      })) ?? [],
+    ...(message.attachments?.length
+      ? {
+          attachments: message.attachments
+            .filter((attachment) => attachment.path)
+            .map((attachment) => ({
+              name: attachment.name,
+              path: attachment.path ?? '',
+              ext: attachment.ext ?? '',
+              sizeBytes: attachment.sizeBytes ?? 0,
+            })),
+        }
+      : {}),
+    ...(message.scope ? { scope: message.scope } : {}),
+  }))
 }
 
 export function App(): React.JSX.Element {
@@ -915,6 +956,17 @@ export function App(): React.JSX.Element {
   const workbookOpeningRef = useRef(false)
   /** Current session's projectId/chatId (resolved when the workbook opens) */
   const chatRefIdsRef = useRef<{ projectId: string; chatId: string } | null>(null)
+  const tempChatIdRef = useRef(`unsaved-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  const historyEpochRef = useRef(0)
+  const pendingRebindRef = useRef<Promise<void> | null>(null)
+  const savingSessionIdRef = useRef<string | null>(null)
+  const [historyReady, setHistoryReady] = useState(false)
+  const [activeChatId, setActiveChatId] = useState<string | null>(null)
+  const chatScope = () => ({
+    filePath: workbookFile?.path ?? null,
+    tempChatId: tempChatIdRef.current,
+    ...(workbookFile?.sessionId ? { sessionId: workbookFile.sessionId } : {}),
+  })
 
   // File renamed externally (in the shell Home list) → sync the title-bar file
   // name (the save path is synced by the main process)
@@ -1009,57 +1061,32 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
     if (!api) return
-    // Reset (new workbook or new session)
-    chatRefIdsRef.current = null
-    setHistoricChat([])
-    const tempChatId = `unsaved-${Date.now()}`
-    const sessionId = workbookFile?.sessionId
-    const resolveArgs: Parameters<typeof api.resolveChat>[0] = { filePath: null, tempChatId }
-    if (sessionId !== undefined) resolveArgs.sessionId = sessionId
-    void api
-      .resolveChat(resolveArgs)
-      .then(async (ids) => {
-        chatRefIdsRef.current = ids
-        const msgs = await api.loadChat({
-          projectId: ids.projectId,
-          chatId: ids.chatId,
-          limit: 200,
-        })
-        if (msgs.length === 0) return
-        setHistoricChat(
-          msgs.map((m) => ({
-            role: m.role,
-            text: m.text,
-            tools:
-              m.tools?.map((t) => ({
-                summary: t.summary,
-                isError: !!t.isError,
-                ...(t.name ? { name: t.name } : {}),
-                ...(t.output ? { output: t.output.slice(0, 2000) } : {}),
-              })) ?? [],
-            // stored metadata only: no thumbnail read for history, the chips render name/size
-            ...(m.attachments && m.attachments.length > 0
-              ? {
-                  attachments: m.attachments
-                    .filter((a) => a.path)
-                    .map((a) => ({
-                      name: a.name,
-                      path: a.path ?? '',
-                      ext: a.ext ?? '',
-                      sizeBytes: a.sizeBytes ?? 0,
-                    })),
-                }
-              : {}),
-            ...(m.scope ? { scope: m.scope } : {}),
-          })),
+    const previousIds = chatRefIdsRef.current
+    const epoch = ++historyEpochRef.current
+    tempChatIdRef.current = `unsaved-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    setHistoryReady(false)
+    const scope = chatScope()
+    void (async () => {
+      await pendingRebindRef.current
+      if (epoch !== historyEpochRef.current) return
+      const ids = await api.resolveChat(scope)
+      if (epoch !== historyEpochRef.current) return
+      chatRefIdsRef.current = ids
+      setActiveChatId(ids.chatId)
+      if (ids.chatId !== previousIds?.chatId) {
+        const messages = await api.loadChat({ ...ids, limit: 200 })
+        if (epoch !== historyEpochRef.current) return
+        agentLoopRef.current?.reset()
+        setChat([])
+        setHistoricChat(storedSheetChat(messages))
+        agentLoopRef.current?.restore(
+          messages.map((message) => ({ role: message.role, text: message.text })),
         )
-        // Restore model context: follow-ups after reopening the file continue the
-        // previous conversation (only when the loop is idle and has no history)
-        agentLoopRef.current?.restore(msgs.map((m) => ({ role: m.role, text: m.text })))
-      })
-      .catch(() => {
-        /* silent */
-      })
+      }
+      setHistoryReady(true)
+    })().catch(() => {
+      setHistoryReady(true)
+    })
   }, [workbookFile?.sessionId])
 
   const persistChatMessage = (
@@ -1419,7 +1446,7 @@ export function App(): React.JSX.Element {
     if (error !== null) setMessage(error)
   }
 
-  function handleNewChat(): void {
+  function clearSheetChat(showNotice: boolean): void {
     agentLoopRef.current?.reset()
     setAiRunScope(undefined)
     setAiBusy(false)
@@ -1433,7 +1460,53 @@ export function App(): React.JSX.Element {
     sentAttachmentsRef.current = []
     setPreview(null)
     lazyPreviewRef.current = null
-    setMessage(t('appNewConversation'))
+    if (showNotice) setMessage(t('appNewConversation'))
+  }
+
+  async function switchHistory(chatId: string, select = true): Promise<void> {
+    const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
+    if (
+      !api ||
+      aiBusy ||
+      runStartingRef.current ||
+      agentLoopRef.current?.busy ||
+      chatId === chatRefIdsRef.current?.chatId
+    )
+      return
+    const epoch = ++historyEpochRef.current
+    const ids = select
+      ? await api.selectChatForFile({ ...chatScope(), chatId })
+      : { projectId: chatRefIdsRef.current?.projectId ?? 'default', chatId }
+    const messages = await api.loadChat({ ...ids, limit: 200 })
+    if (epoch !== historyEpochRef.current) return
+    clearSheetChat(false)
+    chatRefIdsRef.current = ids
+    setActiveChatId(chatId)
+    setHistoricChat(storedSheetChat(messages))
+    agentLoopRef.current?.restore(
+      messages.map((message) => ({ role: message.role, text: message.text })),
+    )
+  }
+
+  async function updateHistory(chatId: string, patch: AiHistoryPatch): Promise<void> {
+    const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
+    if (!api || aiBusy) return
+    const next = await api.updateChatForFile({ ...chatScope(), chatId, patch })
+    if (next.chatId !== chatRefIdsRef.current?.chatId) await switchHistory(next.chatId, false)
+  }
+
+  async function handleNewChat(): Promise<void> {
+    if (aiBusy || runStartingRef.current || agentLoopRef.current?.busy) return
+    const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
+    if (api && typeof api.createChat === 'function') {
+      const epoch = ++historyEpochRef.current
+      const ids = await api.createChat(chatScope())
+      if (epoch !== historyEpochRef.current) return
+      chatRefIdsRef.current = ids
+      setActiveChatId(ids.chatId)
+      setHistoryReady(true)
+    }
+    clearSheetChat(true)
   }
 
   /** DSL context the AgentSkill reads/writes through — reuses the exact same
@@ -3726,6 +3799,27 @@ export function App(): React.JSX.Element {
       (sum, sheet) => sum + sheet.rowCount * sheet.columnCount,
       0,
     )
+    const previousFile = lazyWorkbookRef.current?.file
+    const historyIds = chatRefIdsRef.current
+    if (
+      previousFile &&
+      previousFile.sessionId === savingSessionIdRef.current &&
+      !previousFile.path &&
+      selected.path &&
+      historyIds &&
+      window.projectApi
+    ) {
+      pendingRebindRef.current = window.projectApi
+        .rebindChat({
+          projectId: historyIds.projectId,
+          tempChatId: historyIds.chatId,
+          newFilePath: selected.path,
+        })
+        .then((ids) => {
+          chatRefIdsRef.current = ids
+          setActiveChatId(ids.chatId)
+        })
+    }
     setWorkbookFile(selected)
     // Calculation mode is workbook state: the next file starts automatic,
     // in the engine and in the menu alike.
@@ -4024,25 +4118,37 @@ export function App(): React.JSX.Element {
   async function openPrintPreview() {
     if (printOpeningRef.current || printSession) return
     printOpeningRef.current = true
-    try { setPrintSession(await prepareSheetPrintSession(pageLayoutContext())) }
-    catch (error) { setMessage(error instanceof Error ? error.message : t('appPrintFailed')) }
-    finally { printOpeningRef.current = false }
+    try {
+      setPrintSession(await prepareSheetPrintSession(pageLayoutContext()))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : t('appPrintFailed'))
+    } finally {
+      printOpeningRef.current = false
+    }
   }
   const fileExportRunning = useRef(false)
   async function exportSnapshot(format: string) {
     if (!window.fridayOffice || fileExportRunning.current) return
-    fileExportRunning.current = true; setFileBusy(true); setMessage(officeFileText(getLang()).busy)
+    fileExportRunning.current = true
+    setFileBusy(true)
+    setMessage(officeFileText(getLang()).busy)
     try {
       const serialized = await handleSaveImpl(saveContext(), 'snapshot', true)
       if (!serialized.ok || !serialized.bytes) throw new Error('OFFICE_EXPORT_SNAPSHOT_FAILED')
       const result = await window.fridayOffice.exportSnapshot({ format, bytes: serialized.bytes })
       setMessage(officeExportStatus(getLang(), result))
       return result
-    } catch (error) { setMessage(`${officeFileText(getLang()).failed}: ${String(error)}`); return { ok: false } }
-    finally { fileExportRunning.current = false; setFileBusy(false) }
+    } catch (error) {
+      setMessage(`${officeFileText(getLang()).failed}: ${String(error)}`)
+      return { ok: false }
+    } finally {
+      fileExportRunning.current = false
+      setFileBusy(false)
+    }
   }
   function fileAction(command: OfficeFileAction) {
-    if (command === 'new' || command === 'close' || command === 'information') void window.fridayOffice?.command(command)
+    if (command === 'new' || command === 'close' || command === 'information')
+      void window.fridayOffice?.command(command)
     else if (command === 'open') void handleInspectWorkbook()
     else if (command === 'save') void handleSave('save')
     else if (command === 'saveAs') void handleSave('save-as')
@@ -4056,7 +4162,12 @@ export function App(): React.JSX.Element {
     quiet = false,
     explicitTarget?: { path: string; overwrite: boolean },
   ): Promise<SaveOutcome> {
-    return handleSaveImpl(saveContext(), mode, quiet, explicitTarget)
+    savingSessionIdRef.current = workbookFile?.sessionId ?? null
+    try {
+      return await handleSaveImpl(saveContext(), mode, quiet, explicitTarget)
+    } finally {
+      savingSessionIdRef.current = null
+    }
   }
   closeSaveRef.current = async () => {
     const state = lazyWorkbookRef.current
@@ -4431,9 +4542,18 @@ export function App(): React.JSX.Element {
           onClose={() => setChartDialog(null)}
         />
       )}
-      {officeOptionsOpen && <OfficeOptionsDialog lang={getLang()} onClose={() => setOfficeOptionsOpen(false)} />}
-      {printSession && <Suspense fallback={null}><PrintDialog session={printSession}
-        onClose={() => setPrintSession(null)} setMessage={setMessage} /></Suspense>}
+      {officeOptionsOpen && (
+        <OfficeOptionsDialog lang={getLang()} onClose={() => setOfficeOptionsOpen(false)} />
+      )}
+      {printSession && (
+        <Suspense fallback={null}>
+          <PrintDialog
+            session={printSession}
+            onClose={() => setPrintSession(null)}
+            setMessage={setMessage}
+          />
+        </Suspense>
+      )}
       <ExcelShell
         onFileAction={fileAction}
         fileBusy={fileBusy}
@@ -4449,24 +4569,13 @@ export function App(): React.JSX.Element {
         }}
         selectionFormat={selectionFormat}
         statusMessage={message}
-        aiBusy={aiBusy}
+        aiBusy={aiBusy || !historyReady}
         chat={chat}
         historicChat={historicChat}
-        loadHistoryEntries={async () => {
-          const ids = chatRefIdsRef.current
-          const api = (window as Window & { projectApi?: typeof window.projectApi }).projectApi
-          if (!ids || !api) return [...historicChat, ...chat]
-          const messages = await api.loadChat({ projectId: ids.projectId, chatId: ids.chatId, limit: 200 })
-          return messages.map((message) => ({
-            role: message.role,
-            text: message.text,
-            tools: message.tools?.map((tool) => ({
-              name: tool.name,
-              summary: tool.summary,
-              ...(typeof tool.isError === 'boolean' ? { isError: tool.isError } : {}),
-            })) ?? [],
-          }))
-        }}
+        loadHistorySessions={() => window.projectApi.listChatsForFile(chatScope())}
+        activeChatId={activeChatId}
+        onSelectHistory={switchHistory}
+        onUpdateHistory={updateHistory}
         attachments={attachments}
         attachNotice={attachNotice}
         onPickAttachments={() => void handlePickAttachments()}

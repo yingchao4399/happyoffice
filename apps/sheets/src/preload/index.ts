@@ -306,8 +306,14 @@ const desktopApi: DesktopApi = {
   async previewWorkbookPrint(request) {
     if (!isPdfExportRequest(request)) throw new Error('Invalid print preview request.')
     const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.previewWorkbookPrint, request)
-    if (!isRecord(result) || typeof result.base64 !== 'string' || result.base64.length > 100_000_000 ||
-      typeof result.pageCount !== 'number' || !Number.isInteger(result.pageCount) || result.pageCount < 1) {
+    if (
+      !isRecord(result) ||
+      typeof result.base64 !== 'string' ||
+      result.base64.length > 100_000_000 ||
+      typeof result.pageCount !== 'number' ||
+      !Number.isInteger(result.pageCount) ||
+      result.pageCount < 1
+    ) {
       throw new Error('Invalid print preview response.')
     }
     return { base64: result.base64, pageCount: result.pageCount }
@@ -686,6 +692,10 @@ const projectApi: ProjectApi = {
   resolveChat: (args) => ipcRenderer.invoke('project:resolveChat', args),
   appendChat: (args) => ipcRenderer.invoke('project:appendChat', args),
   loadChat: (args) => ipcRenderer.invoke('project:loadChat', args),
+  listChatsForFile: (args) => ipcRenderer.invoke('project:listChatsForFile', args),
+  createChat: (args) => ipcRenderer.invoke('project:createChat', args),
+  selectChatForFile: (args) => ipcRenderer.invoke('project:selectChatForFile', args),
+  updateChatForFile: (args) => ipcRenderer.invoke('project:updateChatForFile', args),
   rebindChat: (args) => ipcRenderer.invoke('project:rebindChat', args),
 }
 contextBridge.exposeInMainWorld('projectApi', projectApi)

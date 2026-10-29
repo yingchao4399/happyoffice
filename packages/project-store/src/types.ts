@@ -84,10 +84,29 @@ export interface ProjectIndex {
    * Old data without this map falls back to sha256(path) derivation.
    */
   chatIdByPath?: Record<string, string>
+  /** Absolute file path → additional chat ids created for that file. */
+  chatIdsByPath?: Record<string, string[]>
+  /** Absolute file path → most recently selected chat id. */
+  activeChatIdByPath?: Record<string, string>
+  /** Per-conversation display and lifecycle state; JSONL remains the message source. */
+  chatMetaById?: Record<
+    string,
+    {
+      createdAt: string
+      title?: string
+      pinned?: boolean
+      archived?: boolean
+      deletedAt?: string
+    }
+  >
 }
 
 export interface ChatMeta {
   chatId: string
+  title?: string
+  pinned?: boolean
+  archived?: boolean
+  deletedAt?: string
   /** Last modification time of the JSONL file (UTC ISO) */
   updatedAt: string
   /** Approximate line count (estimated from file bytes, not exact) */
